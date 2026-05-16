@@ -1,0 +1,36 @@
+﻿CREATE OR REPLACE VIEW v_candidate_agent_safe AS
+SELECT
+    c.status,
+    c.reject_stage,
+    c.hr_id,
+    c.name,
+    c.gender,
+    c.degree_first,
+    c.degree,
+    c.degree_start,
+    c.degree_end,
+    c.college,
+    c.major,
+    c.work_years,
+    c.experiences,
+    c.latest_interview_id,
+    c.proposed_join_date,
+    c.proposed_department_id,
+    c.is_focused,
+    c.match_point,
+    c.create_time,
+    c.update_time,
+    c.manual_import,
+    c.project_experiences,
+    c.skills,
+    p.name AS position_name,
+    p.category AS position_category,
+    p.jd AS position_jd,
+    p.is_active AS position_is_active,
+    f.id AS follower_record_id,
+    f.candidate_id AS follower_candidate_id,
+    f.follower_id,
+    f.is_current AS follower_is_current
+FROM hr_candidate c
+LEFT JOIN hr_position p ON p.id = c.position_id
+LEFT JOIN hr_candidate_follower f ON f.candidate_id = c.id AND f.is_current = 1;

@@ -1,0 +1,10 @@
+﻿policy_id: chip_modeling_v1
+position_name: 芯片建模工程师
+version: '2026-05-16'
+markdown_file: xiaoman.md
+aliases:
+  - 芯片建模
+  - CPU建模
+  - 建模工程师
+  - gem5
+  - 性能建模
