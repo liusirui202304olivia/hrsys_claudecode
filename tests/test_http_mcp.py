@@ -112,6 +112,58 @@ def test_mcp_tools_list_and_facts_call(tmp_path: Path):
     assert call_body["result"]["facts"]["count"] == 1
 
 
+def test_search_result_candidate_id_can_be_reused_to_save_screening_result(tmp_path: Path):
+    app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
+
+    search_status, search_body = app.handle_request(
+        "POST",
+        "/mcp",
+        {"X-User-Role": "HR_ADMIN"},
+        json.dumps({
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {
+                "name": "search_candidate_safe_profiles",
+                "arguments": {
+                    "filters": {"position_query": "芯片建模"},
+                    "return_fields": ["candidate_id", "name"],
+                    "limit": 5,
+                },
+            },
+        }).encode("utf-8"),
+    )
+    candidate_id = search_body["result"]["candidates"][0]["candidate_id"]
+
+    save_status, save_body = app.handle_request(
+        "POST",
+        "/mcp",
+        {"X-User-Role": "HR_ADMIN"},
+        json.dumps({
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {
+                "name": "save_screening_result",
+                "arguments": {
+                    "task_id": "screen-1",
+                    "standard_ref": "standard_markdown/yihai.md#CPU性能建模工程师",
+                    "recommended_candidates": [{
+                        "candidate_id": candidate_id,
+                        "recommend_reason": "安全画像和岗位标准匹配",
+                        "risk_points": ["需确认项目主导性"],
+                    }],
+                },
+            },
+        }).encode("utf-8"),
+    )
+
+    assert search_status == 200
+    assert candidate_id == 1
+    assert save_status == 200
+    assert save_body["result"]["saved"]["recommended_candidates"][0]["candidate_id"] == 1
+
+
 def test_gateway_headers_control_privileged_candidate_fields(tmp_path: Path):
     app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
     payload = json.dumps({

@@ -90,7 +90,7 @@ skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘汇
     "name": "search_candidate_safe_profiles",
     "arguments": {
       "filters": {"position_query": "CPU性能建模工程师", "min_work_years": 3},
-      "return_fields": ["name", "gender", "degree", "college", "major", "work_years", "skills", "proposed_join_date"],
+      "return_fields": ["candidate_id", "name", "gender", "degree", "college", "major", "work_years", "skills", "proposed_join_date"],
       "limit": 20
     }
   }

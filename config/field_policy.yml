@@ -1,5 +1,6 @@
 ﻿default_visible:
   hr_candidate:
+    - candidate_id
     - status
     - reject_stage
     - hr_id

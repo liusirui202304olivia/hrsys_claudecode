@@ -59,7 +59,7 @@ class RuntimeContainer:
 def build_runtime(config: ConfigCenter | None = None) -> RuntimeContainer:
     config = config or ConfigCenter()
     repository = _build_repository(config)
-    field_policy = FieldPolicy()
+    field_policy = FieldPolicy.from_yaml(config.field_policy_path)
     permission_service = PermissionService()
     safe_view_service = CandidateSafeViewService(field_policy, permission_service)
     retrieval_service = CandidateRetrievalService(repository, safe_view_service)

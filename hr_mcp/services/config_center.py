@@ -39,6 +39,10 @@ class ConfigCenter:
         return self.project_root / "config" / "policies"
 
     @property
+    def field_policy_path(self) -> Path:
+        return self.project_root / "config" / "field_policy.yml"
+
+    @property
     def standard_markdown_dir(self) -> Path:
         return self.project_root / "standard_markdown"
 

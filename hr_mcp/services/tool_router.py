@@ -42,54 +42,116 @@ class ToolRouter:
         return self.registry.list_tools()
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any] | None, identity: IdentityContext) -> dict[str, Any]:
-        arguments = arguments or {}
+        if arguments is None:
+            arguments = {}
         if not isinstance(arguments, dict):
-            raise InvalidToolArgumentsError("Tool arguments must be an object")
-        if not self.registry.has_tool(tool_name):
-            raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
+            exc = InvalidToolArgumentsError("Tool arguments must be an object")
+            self.record_failed_call(tool_name, {}, identity, exc)
+            raise exc
+        try:
+            if not self.registry.has_tool(tool_name):
+                raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
+            self._validate_arguments(tool_name, arguments)
 
-        if tool_name == "search_candidate_safe_profiles":
-            candidates = self.retrieval_service.search_safe_profiles(
-                filters=arguments.get("filters") or {},
-                return_fields=arguments.get("return_fields"),
-                limit=arguments.get("limit") or 50,
-                identity=identity,
-            )
-            result = {"candidates": candidates}
-        elif tool_name == "get_candidate_safe_detail_batch":
-            result = self.retrieval_service.get_safe_detail_batch(
-                candidate_ids=arguments.get("candidate_ids") or [],
-                return_fields=arguments.get("return_fields"),
-                identity=identity,
-            )
-        elif tool_name == "query_talent_pool_facts":
-            result = {
-                "facts": self.talent_query_service.query_facts(
-                    metrics=arguments.get("metrics") or ["count"],
+            if tool_name == "search_candidate_safe_profiles":
+                candidates = self.retrieval_service.search_safe_profiles(
                     filters=arguments.get("filters") or {},
-                    group_by=arguments.get("group_by") or [],
+                    return_fields=arguments.get("return_fields"),
+                    limit=arguments.get("limit") or 50,
                     identity=identity,
                 )
-            }
-        elif tool_name == "save_screening_result":
-            self._assert_can_save(identity)
-            result = {
-                "saved": self.result_store.save_screening_result(
-                    task_id=arguments.get("task_id", ""),
-                    standard_ref=arguments.get("standard_ref", ""),
-                    recommended_candidates=arguments.get("recommended_candidates") or [],
+                result = {"candidates": candidates}
+            elif tool_name == "get_candidate_safe_detail_batch":
+                result = self.retrieval_service.get_safe_detail_batch(
+                    candidate_ids=arguments.get("candidate_ids") or [],
+                    return_fields=arguments.get("return_fields"),
                     identity=identity,
                 )
-            }
-        else:
-            raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
+            elif tool_name == "query_talent_pool_facts":
+                result = {
+                    "facts": self.talent_query_service.query_facts(
+                        metrics=arguments.get("metrics") or ["count"],
+                        filters=arguments.get("filters") or {},
+                        group_by=arguments.get("group_by") or [],
+                        identity=identity,
+                    )
+                }
+            elif tool_name == "save_screening_result":
+                self._assert_can_save(identity)
+                result = {
+                    "saved": self.result_store.save_screening_result(
+                        task_id=arguments.get("task_id", ""),
+                        standard_ref=arguments.get("standard_ref", ""),
+                        recommended_candidates=arguments.get("recommended_candidates") or [],
+                        identity=identity,
+                    )
+                }
+            else:
+                raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
+        except Exception as exc:
+            self.record_failed_call(tool_name, arguments, identity, exc)
+            raise
 
         self._audit(tool_name, arguments, result, identity)
         return result
 
+    def record_failed_call(self, tool_name: str, arguments: dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
+        if not self.audit_service:
+            return
+        fields = arguments.get("return_fields") if isinstance(arguments, dict) else []
+        self.audit_service.record_tool_failure(
+            tool_name=tool_name or "<invalid>",
+            arguments=arguments if isinstance(arguments, dict) else {},
+            identity=identity,
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+            fields=fields if isinstance(fields, list) else [],
+        )
+
     def _assert_can_save(self, identity: IdentityContext) -> None:
         if identity.role not in self.SAVE_ALLOWED_ROLES:
             raise PermissionError("save_screening_result requires HR_ADMIN or RECRUITER role")
+
+    def _validate_arguments(self, tool_name: str, arguments: dict[str, Any]) -> None:
+        if tool_name == "search_candidate_safe_profiles":
+            self._validate_optional_dict(arguments, "filters")
+            self._validate_optional_string_list(arguments, "return_fields")
+            if "limit" in arguments and not isinstance(arguments["limit"], int):
+                raise InvalidToolArgumentsError("search_candidate_safe_profiles.limit must be an integer")
+        elif tool_name == "get_candidate_safe_detail_batch":
+            candidate_ids = arguments.get("candidate_ids")
+            if not isinstance(candidate_ids, list):
+                raise InvalidToolArgumentsError("get_candidate_safe_detail_batch.candidate_ids must be an array")
+            self._validate_optional_string_list(arguments, "return_fields")
+        elif tool_name == "query_talent_pool_facts":
+            self._validate_optional_dict(arguments, "filters")
+            self._validate_optional_string_list(arguments, "metrics")
+            self._validate_optional_string_list(arguments, "group_by")
+        elif tool_name == "save_screening_result":
+            if not isinstance(arguments.get("task_id"), str) or not arguments.get("task_id").strip():
+                raise InvalidToolArgumentsError("save_screening_result.task_id must be a non-empty string")
+            if not isinstance(arguments.get("standard_ref"), str) or not arguments.get("standard_ref").strip():
+                raise InvalidToolArgumentsError("save_screening_result.standard_ref must be a non-empty string")
+            recommended_candidates = arguments.get("recommended_candidates")
+            if not isinstance(recommended_candidates, list):
+                raise InvalidToolArgumentsError("save_screening_result.recommended_candidates must be an array")
+            for index, candidate in enumerate(recommended_candidates):
+                if not isinstance(candidate, dict):
+                    raise InvalidToolArgumentsError(f"recommended_candidates[{index}] must be an object")
+                if candidate.get("candidate_id") in (None, ""):
+                    raise InvalidToolArgumentsError(f"recommended_candidates[{index}].candidate_id is required")
+                if not isinstance(candidate.get("recommend_reason"), str) or not candidate.get("recommend_reason").strip():
+                    raise InvalidToolArgumentsError(f"recommended_candidates[{index}].recommend_reason must be a non-empty string")
+                if not isinstance(candidate.get("risk_points"), list) or not all(isinstance(item, str) for item in candidate.get("risk_points")):
+                    raise InvalidToolArgumentsError(f"recommended_candidates[{index}].risk_points must be an array of strings")
+
+    def _validate_optional_dict(self, arguments: dict[str, Any], key: str) -> None:
+        if key in arguments and not isinstance(arguments[key], dict):
+            raise InvalidToolArgumentsError(f"{key} must be an object")
+
+    def _validate_optional_string_list(self, arguments: dict[str, Any], key: str) -> None:
+        if key in arguments and not (isinstance(arguments[key], list) and all(isinstance(item, str) for item in arguments[key])):
+            raise InvalidToolArgumentsError(f"{key} must be an array of strings")
 
     def _audit(self, tool_name: str, arguments: dict[str, Any], result: dict[str, Any], identity: IdentityContext) -> None:
         if not self.audit_service:

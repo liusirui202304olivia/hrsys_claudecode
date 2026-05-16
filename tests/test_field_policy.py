@@ -5,10 +5,18 @@
 这些用例是字段白名单模型的回归保护。
 """
 
+from pathlib import Path
+
 import pytest
 
 from hr_mcp.models.context import IdentityContext
-from hr_mcp.security.field_policy import FieldAccessError, FieldPolicy
+from hr_mcp.security.field_policy import (
+    DEFAULT_VISIBLE_FIELDS,
+    PRIVILEGED_ROLES,
+    PRIVILEGED_VISIBLE_FIELDS,
+    FieldAccessError,
+    FieldPolicy,
+)
 from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
 from hr_mcp.services.permission_service import PermissionService
 
@@ -18,12 +26,42 @@ def test_default_agent_fields_allow_candidate_name_gender_and_join_date():
 
     allowed = policy.allowed_fields(
         "hr_candidate",
-        ["name", "gender", "proposed_join_date"],
+        ["candidate_id", "name", "gender", "proposed_join_date"],
         role="RECRUITER",
         access_reason=None,
     )
 
-    assert allowed == ["name", "gender", "proposed_join_date"]
+    assert allowed == ["candidate_id", "name", "gender", "proposed_join_date"]
+
+
+def test_field_policy_loads_project_yaml_consistently(tmp_path):
+    policy_file = tmp_path / "field_policy.yml"
+    policy_file.write_text(
+        "default_visible:\n"
+        "  hr_candidate:\n"
+        "    - candidate_id\n"
+        "    - name\n"
+        "  sys_org: [name]\n"
+        "privileged_visible:\n"
+        "  hr_candidate: [mobile, email]\n"
+        "privileged_roles: [HR_ADMIN, SECURITY_ADMIN]\n",
+        encoding="utf-8",
+    )
+
+    policy = FieldPolicy.from_yaml(policy_file)
+
+    assert policy.default_fields["hr_candidate"] == {"candidate_id", "name"}
+    assert policy.privileged_fields["hr_candidate"] == {"mobile", "email"}
+    assert policy.privileged_roles == {"HR_ADMIN", "SECURITY_ADMIN"}
+
+
+def test_project_field_policy_yaml_matches_runtime_defaults():
+    project_root = Path(__file__).resolve().parents[1]
+    policy = FieldPolicy.from_yaml(project_root / "config" / "field_policy.yml")
+
+    assert policy.default_fields == {key: set(value) for key, value in DEFAULT_VISIBLE_FIELDS.items()}
+    assert policy.privileged_fields == {key: set(value) for key, value in PRIVILEGED_VISIBLE_FIELDS.items()}
+    assert policy.privileged_roles == set(PRIVILEGED_ROLES)
 
 
 def test_high_privilege_fields_require_privileged_role_and_access_reason():
@@ -73,6 +111,7 @@ def test_safe_view_projects_only_requested_allowed_fields():
     identity = IdentityContext(user_id=2, role="RECRUITER")
     record = {
         "id": 100,
+        "candidate_id": 100,
         "name": "张三",
         "gender": "MALE",
         "proposed_join_date": "2026-06-01",
@@ -82,11 +121,12 @@ def test_safe_view_projects_only_requested_allowed_fields():
     projected = service.project_record(
         "hr_candidate",
         record,
-        ["name", "gender", "proposed_join_date"],
+        ["candidate_id", "name", "gender", "proposed_join_date"],
         identity,
     )
 
     assert projected == {
+        "candidate_id": 100,
         "name": "张三",
         "gender": "MALE",
         "proposed_join_date": "2026-06-01",

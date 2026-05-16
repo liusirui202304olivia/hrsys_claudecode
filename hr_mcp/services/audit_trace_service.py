@@ -44,6 +44,30 @@ class AuditTraceService:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         return record
 
+    def record_tool_failure(self, tool_name: str, arguments: dict, identity: IdentityContext, error_type: str, error_message: str, fields: list | None = None) -> dict:
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "request_id": identity.request_id,
+            "trace_id": identity.trace_id,
+            "user_id": identity.user_id,
+            "role": identity.role,
+            "department_id": identity.department_id,
+            "client_id": identity.client_id,
+            "tool_name": tool_name,
+            "arguments": self._sanitize(arguments),
+            "candidate_ids": [],
+            "fields": [field for field in (fields or []) if field not in SENSITIVE_AUDIT_FIELDS],
+            "access_reason": identity.access_reason,
+            "mock_gateway_identity": identity.mock_gateway_identity,
+            "result_summary": "failed",
+            "error_type": error_type,
+            "error_message": error_message,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self.audit_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        return record
+
     def _sanitize(self, value: Any) -> Any:
         if isinstance(value, dict):
             return {key: self._sanitize(item) for key, item in value.items() if key not in SENSITIVE_AUDIT_FIELDS}

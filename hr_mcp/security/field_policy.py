@@ -3,9 +3,13 @@
 该文件维护 HR MCP 可向 Agent 暴露的默认字段、高权限字段和拒绝字段规则。
 它强制高权限字段必须由高权限角色并携带访问理由才能返回，未列入白名单的字段默认拒绝。
 候选人姓名、性别和拟入职时间按需求原文开放，联系方式则被限制在高权限路径。
+字段策略默认来自代码内置常量，也可从项目内 `config/field_policy.yml` 加载，避免配置文件和运行时策略漂移。
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 class FieldAccessError(ValueError):
@@ -14,7 +18,7 @@ class FieldAccessError(ValueError):
 
 DEFAULT_VISIBLE_FIELDS: dict[str, set[str]] = {
     "hr_candidate": {
-        "status", "reject_stage", "hr_id", "name", "gender", "degree_first",
+        "candidate_id", "status", "reject_stage", "hr_id", "name", "gender", "degree_first",
         "degree", "degree_start", "degree_end", "college", "major", "work_years",
         "experiences", "latest_interview_id", "proposed_join_date",
         "proposed_department_id", "is_focused", "match_point", "create_time",
@@ -46,6 +50,18 @@ class FieldPolicy:
     privileged_fields: dict[str, set[str]] = field(default_factory=lambda: {k: set(v) for k, v in PRIVILEGED_VISIBLE_FIELDS.items()})
     privileged_roles: set[str] = field(default_factory=lambda: set(PRIVILEGED_ROLES))
 
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "FieldPolicy":
+        path = Path(path)
+        if not path.exists():
+            return cls()
+        parsed = _parse_field_policy_yaml(path.read_text(encoding="utf-8"))
+        return cls(
+            default_fields={key: set(value) for key, value in parsed.get("default_visible", {}).items()},
+            privileged_fields={key: set(value) for key, value in parsed.get("privileged_visible", {}).items()},
+            privileged_roles=set(parsed.get("privileged_roles", [])),
+        )
+
     def allowed_fields(self, table: str, requested_fields: list[str] | tuple[str, ...] | None, role: str, access_reason: str | None) -> list[str]:
         fields = list(requested_fields or sorted(self.default_fields.get(table, set())))
         allowed_default = self.default_fields.get(table, set())
@@ -69,3 +85,60 @@ class FieldPolicy:
 
     def default_field_list(self, table: str) -> list[str]:
         return sorted(self.default_fields.get(table, set()))
+
+    def has_privileged_fields(self, table: str, fields: list[str] | tuple[str, ...] | None) -> bool:
+        if not fields:
+            return False
+        privileged = self.privileged_fields.get(table, set())
+        return any(field_name in privileged for field_name in fields)
+
+
+def _parse_field_policy_yaml(text: str) -> dict[str, dict[str, list[str]] | list[str]]:
+    result: dict[str, dict[str, list[str]] | list[str]] = {
+        "default_visible": {},
+        "privileged_visible": {},
+        "privileged_roles": [],
+    }
+    section: str | None = None
+    current_table: str | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if line.startswith("\ufeff"):
+            line = line.lstrip("\ufeff")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent == 0 and stripped.endswith(":"):
+            section = stripped[:-1]
+            current_table = None
+            continue
+        if indent == 0 and ":" in stripped:
+            key, raw_value = stripped.split(":", 1)
+            if key == "privileged_roles":
+                result["privileged_roles"] = _parse_inline_list(raw_value)
+            continue
+        if section in {"default_visible", "privileged_visible"} and indent == 2 and ":" in stripped:
+            table_name, raw_value = stripped.split(":", 1)
+            current_table = table_name.strip()
+            section_map = result[section]
+            assert isinstance(section_map, dict)
+            section_map[current_table] = _parse_inline_list(raw_value) if raw_value.strip() else []
+            continue
+        if section in {"default_visible", "privileged_visible"} and indent >= 4 and stripped.startswith("- ") and current_table:
+            section_map = result[section]
+            assert isinstance(section_map, dict)
+            section_map[current_table].append(stripped[2:].strip())
+    return result
+
+
+def _parse_inline_list(raw_value: str) -> list[str]:
+    value = raw_value.strip()
+    if not value:
+        return []
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        return [item.strip().strip('"').strip("'") for item in inner.split(",")]
+    return [value.strip('"').strip("'")]

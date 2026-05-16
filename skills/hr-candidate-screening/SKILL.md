@@ -87,4 +87,4 @@ description: Use when the user asks to screen, rank, recommend, or explain candi
 }
 ```
 
-如果后端没有返回 `candidate_id`，使用后端返回的可识别 ID 字段；不要编造 ID。
+后端应返回 `candidate_id`。如果搜索或详情结果缺少 `candidate_id`，停止保存推荐结果并报告数据契约问题；不要使用其他字段替代，也不要编造 ID。

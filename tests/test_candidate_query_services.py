@@ -46,10 +46,10 @@ class FakeRepository:
             },
         ]
 
-    def search_candidates(self, filters, limit):
+    def search_candidates(self, filters, limit, include_privileged=False):
         return self.records[:limit]
 
-    def get_candidates_by_ids(self, candidate_ids):
+    def get_candidates_by_ids(self, candidate_ids, include_privileged=False):
         ids = {int(candidate_id) for candidate_id in candidate_ids}
         return [row for row in self.records if row["id"] in ids]
 
@@ -84,12 +84,12 @@ def test_search_profiles_returns_only_safe_fields_for_recruiter_scope():
 
     rows = retrieval.search_safe_profiles(
         filters={},
-        return_fields=["name", "gender", "status"],
+        return_fields=["candidate_id", "name", "gender", "status"],
         limit=10,
         identity=identity,
     )
 
-    assert rows == [{"name": "张三", "gender": "MALE", "status": "SCREEN_PROCESS"}]
+    assert rows == [{"candidate_id": 1, "name": "张三", "gender": "MALE", "status": "SCREEN_PROCESS"}]
 
 
 def test_search_profiles_rejects_privileged_fields_for_non_privileged_role():
@@ -166,3 +166,19 @@ def test_query_facts_applies_recruiter_scope_to_aggregates():
     assert result["count"] == 1
     assert result["position_distribution"] == [{"position_name": "芯片建模工程师", "count": 1}]
     assert result["status_distribution"] == [{"status": "SCREEN_PROCESS", "count": 1}]
+
+
+def test_interviewer_scope_uses_joined_interviewer_ids():
+    retrieval, _ = make_services()
+    retrieval.repository.records[0]["interviewer_ids"] = [42, 43]
+    retrieval.repository.records[1]["interviewer_ids"] = [99]
+    identity = IdentityContext(user_id=42, role="INTERVIEWER")
+
+    rows = retrieval.search_safe_profiles(
+        filters={},
+        return_fields=["candidate_id", "name"],
+        limit=10,
+        identity=identity,
+    )
+
+    assert rows == [{"candidate_id": 1, "name": "张三"}]

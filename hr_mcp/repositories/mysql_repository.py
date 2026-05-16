@@ -23,7 +23,8 @@ ALLOWED_CANDIDATE_FILTERS = {
 
 
 class MySQLTalentRepository:
-    BASE_VIEW = "v_candidate_agent_privileged"
+    SAFE_VIEW = "v_candidate_agent_safe"
+    PRIVILEGED_VIEW = "v_candidate_agent_privileged"
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
@@ -46,12 +47,13 @@ class MySQLTalentRepository:
         except Exception:
             return False
 
-    def search_candidates(self, filters: dict[str, Any] | None, limit: int) -> list[dict[str, Any]]:
+    def search_candidates(self, filters: dict[str, Any] | None, limit: int, include_privileged: bool = False) -> list[dict[str, Any]]:
         filters = filters or {}
         where, params = self._where(filters)
+        view_name = self._view(include_privileged)
         sql = f"""
             SELECT v.*
-            FROM {self.BASE_VIEW} v
+            FROM {view_name} v
             {where}
             ORDER BY v.update_time DESC
             LIMIT %s
@@ -59,13 +61,14 @@ class MySQLTalentRepository:
         params.append(max(0, min(int(limit), 10_000)))
         return self._fetch_all(sql, params)
 
-    def get_candidates_by_ids(self, candidate_ids: list[int | str]) -> list[dict[str, Any]]:
+    def get_candidates_by_ids(self, candidate_ids: list[int | str], include_privileged: bool = False) -> list[dict[str, Any]]:
         if not candidate_ids:
             return []
         placeholders = ",".join(["%s"] * len(candidate_ids))
+        view_name = self._view(include_privileged)
         sql = f"""
             SELECT v.*
-            FROM {self.BASE_VIEW} v
+            FROM {view_name} v
             WHERE v.candidate_id IN ({placeholders})
         """
         return self._fetch_all(sql, list(candidate_ids))
@@ -137,3 +140,6 @@ class MySQLTalentRepository:
                 return list(cursor.fetchall())
         finally:
             connection.close()
+
+    def _view(self, include_privileged: bool) -> str:
+        return self.PRIVILEGED_VIEW if include_privileged else self.SAFE_VIEW

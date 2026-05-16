@@ -35,8 +35,16 @@ SELECT
     f.id AS follower_record_id,
     f.candidate_id AS follower_candidate_id,
     f.follower_id,
-    f.is_current AS follower_is_current
+    f.is_current AS follower_is_current,
+    i.interviewer_ids
 FROM hr_candidate c
 LEFT JOIN hr_position p ON p.id = c.position_id
 LEFT JOIN hr_source s ON s.id = c.source_id
-LEFT JOIN hr_candidate_follower f ON f.candidate_id = c.id AND f.is_current = 1;
+LEFT JOIN hr_candidate_follower f ON f.candidate_id = c.id AND f.is_current = 1
+LEFT JOIN (
+    SELECT iv.candidate_id, GROUP_CONCAT(DISTINCT ev.interviewer_id ORDER BY ev.interviewer_id) AS interviewer_ids
+    FROM hr_interview iv
+    INNER JOIN hr_interview_evaluate ev ON ev.interview_id = iv.id
+    WHERE ev.interviewer_id IS NOT NULL
+    GROUP BY iv.candidate_id
+) i ON i.candidate_id = c.id;

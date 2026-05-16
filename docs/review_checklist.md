@@ -16,6 +16,7 @@
 
 - [ ] 所有候选人输出经过 `candidate_safe_view_service.py`。
 - [ ] 字段白名单集中在 `security/field_policy.py`。
+- [ ] `candidate_id` 是非敏感默认可见字段，搜索结果必须返回可用于 `save_screening_result` 复用的 ID。
 - [ ] `name`、`gender`、`proposed_join_date` 原文开放，不做掩码。
 - [ ] `mobile`、`email`、`phone`、`username` 只允许高权限角色和访问理由。
 - [ ] 未列入默认可见或高权限可见的字段全部拒绝。

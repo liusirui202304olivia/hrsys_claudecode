@@ -39,13 +39,13 @@ class DumpTalentRepository:
         assert self._tables is not None
         return self._tables.get(table_name, [])
 
-    def search_candidates(self, filters: dict[str, Any] | None, limit: int) -> list[dict[str, Any]]:
+    def search_candidates(self, filters: dict[str, Any] | None, limit: int, include_privileged: bool = False) -> list[dict[str, Any]]:
         filters = filters or {}
         self._validate_filters(filters)
         rows = [row for row in self._joined_candidates() if self._candidate_matches(row, filters)]
         return rows[: max(0, min(int(limit), 10_000))]
 
-    def get_candidates_by_ids(self, candidate_ids: list[int | str]) -> list[dict[str, Any]]:
+    def get_candidates_by_ids(self, candidate_ids: list[int | str], include_privileged: bool = False) -> list[dict[str, Any]]:
         ids = {str(candidate_id) for candidate_id in candidate_ids}
         return [row for row in self._joined_candidates() if str(row.get("id")) in ids or str(row.get("candidate_id")) in ids]
 
@@ -170,6 +170,7 @@ class DumpTalentRepository:
     def _joined_candidates(self) -> list[dict[str, Any]]:
         positions = {row.get("id"): row for row in self.table("hr_position")}
         sources = {row.get("id"): row for row in self.table("hr_source")}
+        interviewer_ids = self._interviewer_ids_by_candidate()
         joined: list[dict[str, Any]] = []
         for candidate in self.table("hr_candidate"):
             row = dict(candidate)
@@ -182,8 +183,26 @@ class DumpTalentRepository:
             row["position_is_active"] = position.get("is_active")
             row["source_name"] = source.get("name")
             row["source_full_name"] = source.get("full_name")
+            row["interviewer_ids"] = interviewer_ids.get(candidate.get("id"), [])
             joined.append(row)
         return joined
+
+    def _interviewer_ids_by_candidate(self) -> dict[Any, list[Any]]:
+        result: dict[Any, set[Any]] = {}
+        interview_candidate = {interview.get("id"): interview.get("candidate_id") for interview in self.table("hr_interview")}
+        for evaluation in self.table("hr_interview_evaluate"):
+            candidate_id = interview_candidate.get(evaluation.get("interview_id"))
+            interviewer_id = evaluation.get("interviewer_id")
+            if candidate_id is None or interviewer_id is None:
+                continue
+            result.setdefault(candidate_id, set()).add(interviewer_id)
+        for interview in self.table("hr_interview"):
+            candidate_id = interview.get("candidate_id")
+            interviewer_id = interview.get("interviewer_id")
+            if candidate_id is None or interviewer_id is None:
+                continue
+            result.setdefault(candidate_id, set()).add(interviewer_id)
+        return {candidate_id: sorted(interviewers) for candidate_id, interviewers in result.items()}
 
     def _candidate_matches(self, row: dict[str, Any], filters: dict[str, Any]) -> bool:
         position_query = filters.get("position_query") or filters.get("position_name")

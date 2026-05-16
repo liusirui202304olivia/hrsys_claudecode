@@ -22,5 +22,13 @@ class PermissionService:
         if identity.role == "DEPARTMENT_MANAGER" and identity.department_id is not None:
             return [row for row in records if row.get("proposed_department_id") == identity.department_id]
         if identity.role == "INTERVIEWER" and identity.user_id is not None:
-            return [row for row in records if row.get("interviewer_id") == identity.user_id]
+            return [row for row in records if self._interviewer_matches(row, identity.user_id)]
         return []
+
+    def _interviewer_matches(self, row: dict, user_id: int) -> bool:
+        if row.get("interviewer_id") == user_id:
+            return True
+        interviewer_ids = row.get("interviewer_ids") or []
+        if isinstance(interviewer_ids, str):
+            interviewer_ids = [item.strip() for item in interviewer_ids.split(",") if item.strip()]
+        return str(user_id) in {str(interviewer_id) for interviewer_id in interviewer_ids}

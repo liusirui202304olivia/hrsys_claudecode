@@ -57,6 +57,28 @@ CREATE TABLE `hr_source` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='简历来源';
 INSERT INTO `hr_source` VALUES (10,'历史导入','其他/历史导入');
+
+CREATE TABLE `hr_interview` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `candidate_id` int NOT NULL COMMENT '候选人ID',
+  `name` varchar(100) DEFAULT NULL COMMENT '面试名称',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面试';
+INSERT INTO `hr_interview` VALUES
+(100,1,'技术一面'),
+(101,1,'技术二面'),
+(102,2,'HR面');
+
+CREATE TABLE `hr_interview_evaluate` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `interview_id` int NOT NULL COMMENT '面试ID',
+  `interviewer_id` int NOT NULL COMMENT '面试官ID',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面试评价';
+INSERT INTO `hr_interview_evaluate` VALUES
+(1000,100,42),
+(1001,101,43),
+(1002,102,99);
 '''
 
 
@@ -76,6 +98,7 @@ def test_dump_repository_parses_schema_and_joined_rows(tmp_path: Path):
     assert candidates[0]["name"] == "张三"
     assert candidates[0]["position_name"] == "芯片建模工程师"
     assert candidates[0]["source_name"] == "历史导入"
+    assert candidates[0]["interviewer_ids"] == [42, 43]
 
 
 def test_dump_repository_filters_status_keyword_and_work_years(tmp_path: Path):
@@ -111,8 +134,25 @@ def test_dump_repository_rejects_unknown_filters(tmp_path: Path):
         repo.search_candidates({"free_sql": "status = 'x'"}, limit=10)
 
 
-def test_mysql_repository_uses_safe_view_not_raw_candidate_star():
+def test_mysql_repository_uses_safe_view_by_default_and_privileged_only_when_requested():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.last_sql = ""
+
+        def _fetch_all(self, sql, params):
+            self.last_sql = sql
+            return []
+
+    repo = RecordingRepo()
+
+    repo.search_candidates({}, limit=10)
+    assert "v_candidate_agent_safe" in repo.last_sql
+    assert "v_candidate_agent_privileged" not in repo.last_sql
+
+    repo.search_candidates({}, limit=10, include_privileged=True)
+    assert "v_candidate_agent_privileged" in repo.last_sql
+
     source = inspect.getsource(MySQLTalentRepository)
 
-    assert "v_candidate_agent_privileged" in source
     assert "SELECT c.*" not in source

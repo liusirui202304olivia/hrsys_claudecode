@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from hr_mcp.models.context import IdentityContext
+from hr_mcp.security.field_policy import FieldAccessError
 from hr_mcp.services.tool_router import InvalidToolArgumentsError, UnknownToolError
 
 
@@ -19,6 +20,7 @@ class JsonRpcError:
     METHOD_NOT_FOUND = -32601
     INVALID_PARAMS = -32602
     INTERNAL_ERROR = -32603
+    FORBIDDEN = -32003
 
 
 class InvalidParamsError(ValueError):
@@ -35,7 +37,9 @@ class JsonRpcHandler:
             if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
                 raise ValueError("Invalid JSON-RPC request")
             method = payload.get("method")
-            params = payload.get("params") or {}
+            params = payload.get("params", {})
+            if params is None:
+                params = {}
             if method == "tools/list":
                 if not isinstance(params, dict):
                     raise InvalidParamsError("tools/list params must be an object")
@@ -49,6 +53,8 @@ class JsonRpcHandler:
             return self._error(request_id, JsonRpcError.METHOD_NOT_FOUND, str(exc))
         except (InvalidParamsError, InvalidToolArgumentsError, TypeError) as exc:
             return self._error(request_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        except (PermissionError, FieldAccessError) as exc:
+            return self._error(request_id, JsonRpcError.FORBIDDEN, str(exc))
         except ValueError as exc:
             return self._error(request_id, JsonRpcError.INVALID_REQUEST, str(exc))
         except Exception as exc:  # pragma: no cover - defensive protocol boundary
@@ -59,11 +65,22 @@ class JsonRpcHandler:
             raise InvalidParamsError("tools/call params must be an object")
         tool_name = params.get("name")
         if not isinstance(tool_name, str) or not tool_name:
-            raise InvalidParamsError("tools/call name must be a non-empty string")
-        arguments = params.get("arguments") or {}
+            exc = InvalidParamsError("tools/call name must be a non-empty string")
+            self._record_failed_tool_call("<invalid>", {}, identity, exc)
+            raise exc
+        arguments = params.get("arguments", {})
+        if arguments is None:
+            arguments = {}
         if not isinstance(arguments, dict):
-            raise InvalidParamsError("tools/call arguments must be an object")
+            exc = InvalidParamsError("tools/call arguments must be an object")
+            self._record_failed_tool_call(tool_name, {}, identity, exc)
+            raise exc
         return self.router.call_tool(tool_name, arguments, identity)
 
     def _error(self, request_id: Any, code: int, message: str) -> dict[str, Any]:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+
+    def _record_failed_tool_call(self, tool_name: str, arguments: dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
+        recorder = getattr(self.router, "record_failed_call", None)
+        if recorder:
+            recorder(tool_name, arguments, identity, exc)

@@ -23,6 +23,10 @@ class CandidateSafeViewService:
             access_reason=identity.access_reason,
         )
 
+    def requested_privileged_fields(self, table: str, requested_fields: list[str] | None, identity: IdentityContext) -> bool:
+        allowed = self.allowed_fields(table, requested_fields, identity)
+        return self.field_policy.has_privileged_fields(table, allowed)
+
     def project_record(self, table: str, record: dict, requested_fields: list[str] | None, identity: IdentityContext) -> dict:
         allowed = self.allowed_fields(table, requested_fields, identity)
         return self._project_with_allowed(record, allowed)
