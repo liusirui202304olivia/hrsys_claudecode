@@ -75,6 +75,7 @@ def test_healthz_readyz_and_admin_tools_endpoint(tmp_path: Path):
 
     assert ready_status == 200
     assert ready_body["checks"]["database"] is True
+    assert "standard_markdown" not in ready_body["checks"]
     assert tools_status == 200
     assert len(tools_body["tools"]) == 4
 

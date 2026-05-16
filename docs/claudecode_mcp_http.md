@@ -30,7 +30,7 @@ P0 默认使用 SQL dump 验证链路：`hr_data_sample/devops_hr_user_data_0508
 ## MCP HTTP Endpoint
 
 - `GET /healthz`：存活检查。
-- `GET /readyz`：检查数据源、Markdown 标准库、审计存储。
+- `GET /readyz`：检查数据源、审计存储。
 - `POST /mcp`：MCP over HTTP JSON-RPC 入口。
 - `GET /mcp/tools`：调试工具清单，仅管理员或调试角色。
 
@@ -49,6 +49,25 @@ P0 默认使用 SQL dump 验证链路：`hr_data_sample/devops_hr_user_data_0508
 - 候选人筛选推荐：由 Claude Code Agent + Skill 完成。
 - 自然语言问答：由 Claude Code Agent + Skill 调用数据工具后组织回答。
 - 招聘分析和报告生成：由 Claude Code Agent + Skill 完成。
+
+## 项目内 Skill 结构
+
+Skill 按业务任务类型拆分，不按工具调用动作拆分：
+
+```text
+skills/hr-talent-intelligence/SKILL.md        HR Talent Intelligence Skill 总入口
+skills/hr-candidate-screening/SKILL.md        Candidate Screening Skill 候选人筛选推荐
+skills/hr-talent-database-qa/SKILL.md         Talent Database QA Skill 人才库业务问答
+skills/hr-talent-analysis/SKILL.md            Talent Analysis Skill 招聘数据分析
+skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘报告生成
+```
+
+总入口只做任务路由；四个业务 Skill 负责各自业务流程。不要把筛选推荐、问答、分析、报告写成一个超大 Skill，也不要把读取标准、读取候选人、统计数量、保存结果这些工具动作拆成独立 Skill。
+
+六类已确认推荐标准：
+
+- `standard_markdown/xiaoman.md`：后端工程师（数据库岗位名：数字后端设计工程师）、SOC设计工程师、原型验证工程师。
+- `standard_markdown/yihai.md`：芯片建模工程师（数据库岗位名：CPU性能建模工程师）、应用软件开发工程师、AI芯片工程师（数据库岗位名：AI芯片开发工程师）。
 
 ## JSON-RPC 示例
 

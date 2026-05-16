@@ -35,7 +35,6 @@ class RuntimeContainer:
     def ready_checks(self) -> dict[str, bool]:
         return {
             "database": bool(self.repository.ready()),
-            "standard_markdown": self.config.standard_markdown_dir.exists(),
             "audit_store": self._path_available(self.config.audit_path.parent),
         }
 

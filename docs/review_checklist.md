@@ -8,6 +8,8 @@
 - [ ] Identity、权限、工具注册、工具路由、候选人安全画像、召回、事实查询、结果存储、审计分别在独立文件中。
 - [ ] 后端不实现岗位标准读取、候选人推荐、自然语言问答、招聘分析或报告生成。
 - [ ] Claude Code Skill 负责读取 `standard_markdown`、执行筛选推荐、问答、分析和报告。
+- [ ] Skill 按业务任务拆为总入口、候选人筛选推荐、人才库业务问答、招聘数据分析、招聘报告生成五个一级 Skill。
+- [ ] 不存在一个超大 HR 业务 Skill，也不存在按工具动作拆分的“读取标准/读取候选人/统计数量/保存结果”业务 Skill。
 - [ ] P0 不包含飞书机器人、Web Chat、考勤、绩效、薪酬业务逻辑。
 
 ## 字段安全
@@ -29,7 +31,7 @@
 ## HTTP / Gateway
 
 - [ ] `GET /healthz` 返回存活状态。
-- [ ] `GET /readyz` 返回数据源、标准库、审计存储状态。
+- [ ] `GET /readyz` 返回数据源、审计存储状态，不依赖 `standard_markdown`。
 - [ ] `POST /mcp` 支持 `tools/list` 和 `tools/call`。
 - [ ] `GET /mcp/tools` 仅管理员或调试角色可用。
 - [ ] Gateway 注入 `X-Request-Id`、`X-Trace-Id`、`X-User-Id`、`X-User-Name`、`X-User-Role`、`X-Department-Id`、`X-Client-Id`、`X-Access-Reason`。
@@ -50,4 +52,8 @@
 - [ ] 默认角色请求高权限字段被拒绝。
 - [ ] `HR_ADMIN` 携带 `X-Access-Reason` 时可访问高权限字段。
 - [ ] 本地 smoke 覆盖候选人召回、人才库事实查询和推荐结果保存。
-- [ ] Claude Code Skill 覆盖六类岗位标准映射和推荐/问答/分析/报告工作流。
+- [ ] `skills/hr-talent-intelligence/SKILL.md` 能路由到四个业务 Skill。
+- [ ] `skills/hr-candidate-screening/SKILL.md` 覆盖六类岗位标准映射和推荐结果保存格式。
+- [ ] `skills/hr-talent-database-qa/SKILL.md` 只做事实问答，不生成推荐结论。
+- [ ] `skills/hr-talent-analysis/SKILL.md` 做数据分析并区分事实和 Agent 推断。
+- [ ] `skills/hr-recruitment-report/SKILL.md` 生成报告，不调用后端报告生成工具。
