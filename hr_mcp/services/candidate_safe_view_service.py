@@ -18,8 +18,12 @@ class CandidateSafeViewService:
 
     def project_record(self, table: str, record: dict, requested_fields: list[str] | None, identity: IdentityContext) -> dict:
         allowed = self.allowed_fields(table, requested_fields, identity)
-        return {field_name: record.get(field_name) for field_name in allowed if field_name in record}
+        return self._project_with_allowed(record, allowed)
 
     def project_records(self, table: str, records: list[dict], requested_fields: list[str] | None, identity: IdentityContext) -> list[dict]:
+        allowed = self.allowed_fields(table, requested_fields, identity)
         scoped = self.permission_service.filter_candidate_records(records, identity) if table == "hr_candidate" else records
-        return [self.project_record(table, row, requested_fields, identity) for row in scoped]
+        return [self._project_with_allowed(row, allowed) for row in scoped]
+
+    def _project_with_allowed(self, record: dict, allowed: list[str]) -> dict:
+        return {field_name: record.get(field_name) for field_name in allowed if field_name in record}
