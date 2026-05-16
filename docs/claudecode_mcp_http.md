@@ -59,10 +59,12 @@ skills/hr-talent-intelligence/SKILL.md        HR Talent Intelligence Skill 总�
 skills/hr-candidate-screening/SKILL.md        Candidate Screening Skill 候选人筛选推荐
 skills/hr-talent-database-qa/SKILL.md         Talent Database QA Skill 人才库业务问答
 skills/hr-talent-analysis/SKILL.md            Talent Analysis Skill 招聘数据分析
-skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘报告生成
+skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘汇报/PPT 页生成
 ```
 
 总入口只做任务路由；四个业务 Skill 负责各自业务流程。不要把筛选推荐、问答、分析、报告写成一个超大 Skill，也不要把读取标准、读取候选人、统计数量、保存结果这些工具动作拆成独立 Skill。
+
+招聘报告 Skill 的默认产物不是普通长文，而是 HR 汇报/PPT 型页面内容，包括招聘漏斗分析、候选池结构分析、周期招聘进展、重点岗位推进页。每页应包含核心结论、关键指标卡、图表建议、数据口径、业务解读和行动建议。
 
 六类已确认推荐标准：
 
@@ -169,4 +171,5 @@ X-Access-Reason: 联系候选人安排面试
 
 - “筛一筛芯片建模工程师，推荐一部分人。”
 - “库里各岗位候选人数量分布怎么样？”
-- “生成一份应用软件开发工程师候选人池分析报告。”
+- “生成一份应用软件开发工程师候选人池分析报告，用 PPT 汇报页结构展示。”
+- “做一页芯片建模工程师招聘漏斗分析，说明各阶段转化率和流失原因。”

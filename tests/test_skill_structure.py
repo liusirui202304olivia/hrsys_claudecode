@@ -80,3 +80,25 @@ def test_skills_keep_backend_as_four_tool_data_service() -> None:
         "generate_recruitment_report",
     ]:
         assert removed_backend_tool not in all_skill_text
+
+
+def test_recruitment_report_skill_targets_hr_ppt_style_reports() -> None:
+    content = _read("skills/hr-recruitment-report/SKILL.md")
+
+    required_report_elements = [
+        "招聘漏斗",
+        "转化率",
+        "流失原因",
+        "关键指标卡",
+        "PPT",
+        "图表建议",
+        "行动建议",
+        "简历投递",
+        "初筛合格",
+        "成功入职",
+    ]
+
+    for element in required_report_elements:
+        assert element in content
+
+    assert "不要只输出通用 Markdown 章节" in content

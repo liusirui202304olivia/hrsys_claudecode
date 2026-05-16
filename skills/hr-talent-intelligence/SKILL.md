@@ -25,7 +25,7 @@ skills/hr-talent-intelligence/SKILL.md        总入口
 skills/hr-candidate-screening/SKILL.md        候选人筛选推荐
 skills/hr-talent-database-qa/SKILL.md         人才库业务问答
 skills/hr-talent-analysis/SKILL.md            招聘数据分析
-skills/hr-recruitment-report/SKILL.md         招聘报告生成
+skills/hr-recruitment-report/SKILL.md         招聘汇报/PPT 页生成
 ```
 
 不要把筛选推荐、问答、分析、报告写进一个超大 Skill。也不要把读取岗位标准、读取候选人、统计数量、保存结果这些工具调用动作拆成独立业务 Skill。
@@ -35,7 +35,7 @@ skills/hr-recruitment-report/SKILL.md         招聘报告生成
 - 候选人筛选、推荐、推荐理由、风险点、面试验证建议：使用 `skills/hr-candidate-screening/SKILL.md`。
 - 人才库事实问答、数量查询、状态/来源/岗位分布、候选人明细解释：使用 `skills/hr-talent-database-qa/SKILL.md`。
 - 招聘数据分析、候选池结构、供给缺口、流程积压、趋势判断：使用 `skills/hr-talent-analysis/SKILL.md`。
-- 招聘报告、候选池报告、周报/月报、结构化 Markdown 输出：使用 `skills/hr-recruitment-report/SKILL.md`。
+- 招聘报告、候选池报告、招聘漏斗分析、周报/月报、PPT 汇报页输出：使用 `skills/hr-recruitment-report/SKILL.md`。
 
 ## 通用安全边界
 

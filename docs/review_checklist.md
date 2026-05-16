@@ -8,7 +8,7 @@
 - [ ] Identity、权限、工具注册、工具路由、候选人安全画像、召回、事实查询、结果存储、审计分别在独立文件中。
 - [ ] 后端不实现岗位标准读取、候选人推荐、自然语言问答、招聘分析或报告生成。
 - [ ] Claude Code Skill 负责读取 `standard_markdown`、执行筛选推荐、问答、分析和报告。
-- [ ] Skill 按业务任务拆为总入口、候选人筛选推荐、人才库业务问答、招聘数据分析、招聘报告生成五个一级 Skill。
+- [ ] Skill 按业务任务拆为总入口、候选人筛选推荐、人才库业务问答、招聘数据分析、招聘汇报/PPT 页生成五个一级 Skill。
 - [ ] 不存在一个超大 HR 业务 Skill，也不存在按工具动作拆分的“读取标准/读取候选人/统计数量/保存结果”业务 Skill。
 - [ ] P0 不包含飞书机器人、Web Chat、考勤、绩效、薪酬业务逻辑。
 
@@ -56,4 +56,5 @@
 - [ ] `skills/hr-candidate-screening/SKILL.md` 覆盖六类岗位标准映射和推荐结果保存格式。
 - [ ] `skills/hr-talent-database-qa/SKILL.md` 只做事实问答，不生成推荐结论。
 - [ ] `skills/hr-talent-analysis/SKILL.md` 做数据分析并区分事实和 Agent 推断。
-- [ ] `skills/hr-recruitment-report/SKILL.md` 生成报告，不调用后端报告生成工具。
+- [ ] `skills/hr-recruitment-report/SKILL.md` 生成 HR 汇报/PPT 型报告页，不调用后端报告生成工具。
+- [ ] 招聘报告 Skill 覆盖招聘漏斗、转化率、流失原因、关键指标卡、图表建议和行动建议。
