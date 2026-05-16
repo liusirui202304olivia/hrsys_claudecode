@@ -1,0 +1,35 @@
+﻿default_visible:
+  hr_candidate:
+    - status
+    - reject_stage
+    - hr_id
+    - name
+    - gender
+    - degree_first
+    - degree
+    - degree_start
+    - degree_end
+    - college
+    - major
+    - work_years
+    - experiences
+    - latest_interview_id
+    - proposed_join_date
+    - proposed_department_id
+    - is_focused
+    - match_point
+    - create_time
+    - update_time
+    - manual_import
+    - project_experiences
+    - skills
+  hr_position: [name, category, jd, is_active]
+  hr_screen_evaluate: [id, candidate_id, screener_id, feedback, result, create_time, update_time]
+  hr_interview: [id, candidate_id, name, interview_type, interview_time, status, create_time, update_time]
+  hr_candidate_follower: [id, candidate_id, follower_id, is_current]
+  sys_user: [id, name, belong_org_id, gender, employee_type, leader_id, job, site, hire_date, probation_months, conversion_date, last_day, status]
+  sys_org: [name, leader_id, member_count]
+privileged_visible:
+  hr_candidate: [mobile, email]
+  sys_user: [phone, email, username]
+privileged_roles: [HR_ADMIN]
