@@ -149,3 +149,20 @@ def test_non_admin_tools_endpoint_is_forbidden(tmp_path: Path):
 
     assert status == 403
     assert body["error"] == "forbidden"
+
+
+def test_mcp_rejects_untrusted_gateway_headers_when_secret_configured(tmp_path: Path):
+    project_root = make_project(tmp_path)
+    env_file = project_root / ".env"
+    env_file.write_text("HR_GATEWAY_SHARED_SECRET=s3cr3t\n", encoding="utf-8")
+    app = create_app(ConfigCenter(project_root=project_root, env_path=env_file))
+
+    status, body = app.handle_request(
+        "POST",
+        "/mcp",
+        {"X-User-Role": "HR_ADMIN", "X-Access-Reason": "联系候选人"},
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8"),
+    )
+
+    assert status == 401
+    assert body["error"] == "unauthorized_gateway"

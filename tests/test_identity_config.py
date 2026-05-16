@@ -1,7 +1,7 @@
 ﻿from pathlib import Path
 
 from hr_mcp.services.config_center import ConfigCenter
-from hr_mcp.services.identity_service import IdentityService
+from hr_mcp.services.identity_service import IdentityError, IdentityService
 
 
 def test_gateway_headers_create_identity_context():
@@ -64,3 +64,20 @@ def test_config_center_exposes_default_paths(tmp_path: Path):
     assert config.audit_path == tmp_path / "runtime" / "audit" / "audit.jsonl"
     assert config.result_path == tmp_path / "runtime" / "results" / "screening_results.jsonl"
     assert config.dump_path == tmp_path / "hr_data_sample" / "devops_hr_user_data_0508_1.sql"
+
+
+
+def test_gateway_shared_secret_required_when_configured(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("HR_GATEWAY_SHARED_SECRET=s3cr3t\n", encoding="utf-8")
+    service = IdentityService(ConfigCenter(project_root=tmp_path, env_path=env_file))
+
+    try:
+        service.from_headers({"X-User-Role": "HR_ADMIN"})
+        raised = False
+    except IdentityError:
+        raised = True
+
+    assert raised is True
+    identity = service.from_headers({"X-User-Role": "HR_ADMIN", "X-Gateway-Secret": "s3cr3t"})
+    assert identity.role == "HR_ADMIN"

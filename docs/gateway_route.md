@@ -29,10 +29,12 @@ Gateway 必须透传以下 header：
 - `X-Department-Id`：用户所属部门 ID，用于部门范围 ABAC。
 - `X-Client-Id`：客户端 ID，例如 `claudecode`、`ai_cli`。
 - `X-Access-Reason`：访问高权限字段时必填，并写入审计日志。
+- `X-Gateway-Secret`：可信 Gateway 到 HR MCP 服务的共享密钥 header；生产环境应配置 `HR_GATEWAY_SHARED_SECRET` 并由 Gateway 注入，防止客户端直连时伪造角色。
 
 ## 权限模型
 
-默认 Agent 可见字段只包含已确认字段。候选人 `name`、`gender`、`proposed_join_date` 按原文返回，不掩码。
+默认 Agent 可见字段只包含已确认字段。候选人
+ame`、`gender`、`proposed_join_date` 按原文返回，不掩码。
 
 高权限字段：
 
@@ -51,6 +53,7 @@ Gateway 必须透传以下 header：
 ## Gateway 侧建议
 
 - 在 Gateway 完成 HTTPS、SSL 终止和 SSO 鉴权。
+- 生产环境在 HR MCP 服务端配置 `HR_GATEWAY_SHARED_SECRET`，Gateway 转发时注入匹配的 `X-Gateway-Secret`。
 - 对 `/mcp/hr/p0` 设置用户、设备、IP 访问控制。
 - 对 `POST /mcp` 做请求体大小限制和全局限流。
 - 记录 Gateway 请求日志，但不要记录高权限字段值。

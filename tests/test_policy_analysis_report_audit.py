@@ -147,3 +147,78 @@ def test_talent_analysis_samples_use_safe_projection_without_contacts():
     assert "mobile" not in sample_text
     assert "email" not in sample_text
 
+
+
+def test_talent_analysis_applies_recruiter_scope_to_summary_and_samples():
+    from hr_mcp.security.field_policy import FieldPolicy
+    from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
+    from hr_mcp.services.permission_service import PermissionService
+
+    class ScopedRepository:
+        def search_candidates(self, filters, limit):
+            return [
+                {"candidate_id": 1, "name": "张三", "status": "SCREEN_PROCESS", "hr_id": 2, "position_name": "芯片建模工程师"},
+                {"candidate_id": 2, "name": "李四", "status": "REJECTED", "hr_id": 3, "position_name": "应用软件开发工程师"},
+            ][:limit]
+
+        def count_candidates(self, filters):
+            return 2
+
+        def position_distribution(self, filters):
+            return []
+
+        def status_distribution(self, filters):
+            return []
+
+        def source_distribution(self, filters):
+            return []
+
+    safe_view = CandidateSafeViewService(FieldPolicy(), PermissionService())
+    service = TalentAnalysisService(ScopedRepository(), safe_view_service=safe_view)
+
+    result = service.analyze_talent_pool(
+        analysis_target="范围测试",
+        policy_id="policy-1",
+        filters={},
+        dimensions=["position_name", "status"],
+        sample_limit=10,
+        identity=IdentityContext(user_id=2, role="RECRUITER"),
+    )
+
+    assert result["summary_stats"]["total_candidates"] == 1
+    assert result["dimension_analysis"]["position_distribution"] == [{"position_name": "芯片建模工程师", "count": 1}]
+    assert result["sample_candidates"] == [{"hr_id": 2, "name": "张三", "status": "SCREEN_PROCESS"}]
+
+
+def test_result_store_and_audit_sanitize_contact_fields(tmp_path: Path):
+    result_path = tmp_path / "results.jsonl"
+    audit_path = tmp_path / "audit.jsonl"
+    identity = IdentityContext(user_id=1, role="HR_ADMIN", request_id="req-1")
+
+    ScreeningResultStore(result_path).save_screening_result(
+        screening_task_id="task-contacts",
+        policy_id="policy-1",
+        recommended_candidates=[{
+            "candidate_id": 1,
+            "name": "张三",
+            "mobile": "13800000000",
+            "email": "z@example.com",
+            "phone": "010-1",
+            "username": "zhangsan",
+            "recommend_level": "强推荐",
+        }],
+        summary="推荐 1 人",
+        identity=identity,
+    )
+    AuditTraceService(audit_path).record_tool_call(
+        tool_name="save_screening_result",
+        arguments={"recommended_candidates": [{"mobile": "13800000000", "email": "z@example.com"}]},
+        result_summary="saved",
+        identity=identity,
+    )
+
+    combined = result_path.read_text(encoding="utf-8") + audit_path.read_text(encoding="utf-8")
+    assert "13800000000" not in combined
+    assert "z@example.com" not in combined
+    assert "username" not in combined
+    assert "强推荐" in combined

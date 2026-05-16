@@ -1,5 +1,7 @@
 ﻿import inspect
 
+import pytest
+
 from hr_mcp.mcp.jsonrpc import JsonRpcError, JsonRpcHandler
 from hr_mcp.models.context import IdentityContext
 from hr_mcp.services.tool_registry import ToolRegistry
@@ -134,4 +136,33 @@ def test_tool_router_does_not_import_repository_layer():
     assert "repositories" not in source
     assert "mysql_repository" not in source
     assert "dump_repository" not in source
+
+
+
+
+def test_jsonrpc_invalid_params_returns_invalid_params_error():
+    router, _ = build_router()
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN")
+
+    response = handler.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": []}, identity)
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+
+    response = handler.handle(
+        {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "get_screening_policy", "arguments": "bad"}},
+        identity,
+    )
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+
+
+def test_router_denies_readonly_save_screening_result():
+    router, _ = build_router()
+    identity = IdentityContext(user_id=7, role="READONLY_VIEWER")
+
+    with pytest.raises(PermissionError):
+        router.call_tool(
+            "save_screening_result",
+            {"screening_task_id": "task-1", "policy_id": "policy-1", "recommended_candidates": []},
+            identity,
+        )
 

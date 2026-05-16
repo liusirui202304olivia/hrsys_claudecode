@@ -12,7 +12,8 @@
 
 - [ ] 所有候选人输出经过 `candidate_safe_view_service.py`。
 - [ ] 字段白名单集中在 `security/field_policy.py`。
-- [ ] `name`、`gender`、`proposed_join_date` 原文开放，不做掩码。
+- [ ]
+ame`、`gender`、`proposed_join_date` 原文开放，不做掩码。
 - [ ] `mobile`、`email`、`phone`、`username` 只允许高权限角色和访问理由。
 - [ ] 未列入默认可见或高权限可见的字段全部拒绝。
 - [ ] 高权限字段访问写入审计日志，包含 `X-Access-Reason`。
@@ -31,6 +32,7 @@
 - [ ] `POST /mcp` 支持 `tools/list` 和 `tools/call`。
 - [ ] `GET /mcp/tools` 仅管理员或调试角色可用。
 - [ ] Gateway 注入 `X-Request-Id`、`X-Trace-Id`、`X-User-Id`、`X-User-Name`、`X-User-Role`、`X-Department-Id`、`X-Client-Id`、`X-Access-Reason`。
+- [ ] 生产环境配置 `HR_GATEWAY_SHARED_SECRET`，并确认直连伪造 Gateway header 会被拒绝。
 
 ## 测试
 

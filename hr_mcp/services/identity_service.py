@@ -2,6 +2,10 @@
 from hr_mcp.services.config_center import ConfigCenter
 
 
+class IdentityError(PermissionError):
+    pass
+
+
 class IdentityService:
     def __init__(self, config: ConfigCenter | None = None):
         self.config = config or ConfigCenter()
@@ -21,6 +25,7 @@ class IdentityService:
                 access_reason=self.config.get("HR_MOCK_ACCESS_REASON"),
                 mock_gateway_identity=True,
             )
+        self._assert_trusted_gateway(normalized)
         return IdentityContext(
             user_id=self._int_or_none(normalized.get("x-user-id")),
             user_name=normalized.get("x-user-name"),
@@ -32,6 +37,11 @@ class IdentityService:
             access_reason=normalized.get("x-access-reason"),
             mock_gateway_identity=False,
         )
+
+    def _assert_trusted_gateway(self, normalized_headers: dict[str, str]) -> None:
+        expected = self.config.gateway_shared_secret
+        if expected and normalized_headers.get("x-gateway-secret") != expected:
+            raise IdentityError("Untrusted Gateway headers")
 
     def _int_or_none(self, value: str | None) -> int | None:
         if value is None or value == "":

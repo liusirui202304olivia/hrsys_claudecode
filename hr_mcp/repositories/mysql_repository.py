@@ -3,7 +3,21 @@
 from typing import Any
 
 
+ALLOWED_CANDIDATE_FILTERS = {
+    "position_query",
+    "position_name",
+    "position_id",
+    "candidate_status",
+    "status",
+    "min_work_years",
+    "skills_any",
+    "experience_keywords_any",
+}
+
+
 class MySQLTalentRepository:
+    BASE_VIEW = "v_candidate_agent_privileged"
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
 
@@ -27,29 +41,12 @@ class MySQLTalentRepository:
 
     def search_candidates(self, filters: dict[str, Any] | None, limit: int) -> list[dict[str, Any]]:
         filters = filters or {}
-        where: list[str] = []
-        params: list[Any] = []
-        if filters.get("position_query"):
-            where.append("p.name LIKE %s")
-            params.append(f"%{filters['position_query']}%")
-        if filters.get("min_work_years") is not None:
-            where.append("c.work_years >= %s")
-            params.append(int(filters["min_work_years"]))
-        statuses = filters.get("candidate_status", filters.get("status"))
-        if statuses:
-            status_list = [statuses] if isinstance(statuses, str) else list(statuses)
-            where.append("c.status IN (" + ",".join(["%s"] * len(status_list)) + ")")
-            params.extend(status_list)
-        where_sql = "WHERE " + " AND ".join(where) if where else ""
+        where, params = self._where(filters)
         sql = f"""
-            SELECT c.*, p.name AS position_name, p.category AS position_category,
-                   p.jd AS position_jd, p.is_active AS position_is_active,
-                   s.name AS source_name, s.full_name AS source_full_name
-            FROM hr_candidate c
-            LEFT JOIN hr_position p ON p.id = c.position_id
-            LEFT JOIN hr_source s ON s.id = c.source_id
-            {where_sql}
-            ORDER BY c.update_time DESC
+            SELECT v.*
+            FROM {self.BASE_VIEW} v
+            {where}
+            ORDER BY v.update_time DESC
             LIMIT %s
         """
         params.append(max(0, min(int(limit), 10_000)))
@@ -60,13 +57,9 @@ class MySQLTalentRepository:
             return []
         placeholders = ",".join(["%s"] * len(candidate_ids))
         sql = f"""
-            SELECT c.*, p.name AS position_name, p.category AS position_category,
-                   p.jd AS position_jd, p.is_active AS position_is_active,
-                   s.name AS source_name, s.full_name AS source_full_name
-            FROM hr_candidate c
-            LEFT JOIN hr_position p ON p.id = c.position_id
-            LEFT JOIN hr_source s ON s.id = c.source_id
-            WHERE c.id IN ({placeholders})
+            SELECT v.*
+            FROM {self.BASE_VIEW} v
+            WHERE v.candidate_id IN ({placeholders})
         """
         return self._fetch_all(sql, list(candidate_ids))
 
@@ -81,6 +74,37 @@ class MySQLTalentRepository:
 
     def source_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
         return self._distribution("source_name", filters or {})
+
+    def _where(self, filters: dict[str, Any]) -> tuple[str, list[Any]]:
+        self._validate_filters(filters)
+        where: list[str] = []
+        params: list[Any] = []
+        position_query = filters.get("position_query") or filters.get("position_name")
+        if position_query:
+            where.append("v.position_name LIKE %s")
+            params.append(f"%{position_query}%")
+        if filters.get("position_id") is not None:
+            where.append("v.position_id = %s")
+            params.append(int(filters["position_id"]))
+        if filters.get("min_work_years") is not None:
+            where.append("v.work_years >= %s")
+            params.append(int(filters["min_work_years"]))
+        statuses = filters.get("candidate_status", filters.get("status"))
+        if statuses:
+            status_list = [statuses] if isinstance(statuses, str) else list(statuses)
+            where.append("v.status IN (" + ",".join(["%s"] * len(status_list)) + ")")
+            params.extend(status_list)
+        keywords = list(filters.get("skills_any") or []) + list(filters.get("experience_keywords_any") or [])
+        for keyword in keywords:
+            where.append("(v.skills LIKE %s OR v.experiences LIKE %s OR v.project_experiences LIKE %s)")
+            like_value = f"%{keyword}%"
+            params.extend([like_value, like_value, like_value])
+        return ("WHERE " + " AND ".join(where) if where else ""), params
+
+    def _validate_filters(self, filters: dict[str, Any]) -> None:
+        unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
+        if unknown:
+            raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
 
     def _distribution(self, field: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
         counts: dict[str, int] = {}

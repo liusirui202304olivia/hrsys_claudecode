@@ -4,6 +4,22 @@ from copy import deepcopy
 from typing import Any
 
 
+CANDIDATE_FILTER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "position_query": {"type": "string"},
+        "position_name": {"type": "string"},
+        "position_id": {"type": "integer"},
+        "candidate_status": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+        "status": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+        "min_work_years": {"type": "integer", "minimum": 0},
+        "skills_any": {"type": "array", "items": {"type": "string"}},
+        "experience_keywords_any": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+
 class ToolRegistry:
     TOOL_DEFINITIONS: list[dict[str, Any]] = [
         {
@@ -25,7 +41,7 @@ class ToolRegistry:
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "filters": {"type": "object"},
+                    "filters": CANDIDATE_FILTER_SCHEMA,
                     "return_fields": {"type": "array", "items": {"type": "string"}},
                     "limit": {"type": "integer", "minimum": 0, "maximum": 300},
                 },
@@ -52,7 +68,7 @@ class ToolRegistry:
                 "type": "object",
                 "properties": {
                     "metrics": {"type": "array", "items": {"type": "string"}},
-                    "filters": {"type": "object"},
+                    "filters": CANDIDATE_FILTER_SCHEMA,
                     "group_by": {"type": "array", "items": {"type": "string"}},
                 },
             },
@@ -66,7 +82,7 @@ class ToolRegistry:
                 "properties": {
                     "analysis_target": {"type": "string"},
                     "policy_id": {"type": "string"},
-                    "filters": {"type": "object"},
+                    "filters": CANDIDATE_FILTER_SCHEMA,
                     "dimensions": {"type": "array", "items": {"type": "string"}},
                     "sample_limit": {"type": "integer", "minimum": 0, "maximum": 30},
                 },

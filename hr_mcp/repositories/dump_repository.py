@@ -6,6 +6,18 @@ from pathlib import Path
 from typing import Any
 
 
+ALLOWED_CANDIDATE_FILTERS = {
+    "position_query",
+    "position_name",
+    "position_id",
+    "candidate_status",
+    "status",
+    "min_work_years",
+    "skills_any",
+    "experience_keywords_any",
+}
+
+
 class DumpTalentRepository:
     def __init__(self, dump_path: str | Path):
         self.dump_path = Path(dump_path)
@@ -22,12 +34,13 @@ class DumpTalentRepository:
 
     def search_candidates(self, filters: dict[str, Any] | None, limit: int) -> list[dict[str, Any]]:
         filters = filters or {}
+        self._validate_filters(filters)
         rows = [row for row in self._joined_candidates() if self._candidate_matches(row, filters)]
         return rows[: max(0, min(int(limit), 10_000))]
 
     def get_candidates_by_ids(self, candidate_ids: list[int | str]) -> list[dict[str, Any]]:
         ids = {str(candidate_id) for candidate_id in candidate_ids}
-        return [row for row in self._joined_candidates() if str(row.get("id")) in ids]
+        return [row for row in self._joined_candidates() if str(row.get("id")) in ids or str(row.get("candidate_id")) in ids]
 
     def count_candidates(self, filters: dict[str, Any] | None) -> int:
         return len(self.search_candidates(filters or {}, 10_000_000))
@@ -61,6 +74,11 @@ class DumpTalentRepository:
             {"source_name": key, "count": count}
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
+
+    def _validate_filters(self, filters: dict[str, Any]) -> None:
+        unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
+        if unknown:
+            raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
 
     def _ensure_loaded(self) -> None:
         if self._tables is not None:

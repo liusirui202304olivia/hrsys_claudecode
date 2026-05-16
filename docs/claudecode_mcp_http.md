@@ -16,6 +16,7 @@ python -m hr_mcp
 HR_MCP_HOST=127.0.0.1
 HR_MCP_PORT=8765
 HR_DATA_BACKEND=dump
+HR_GATEWAY_SHARED_SECRET=change-me-outside-git
 ```
 
 P0 默认使用 SQL dump 验证链路：`hr_data_sample/devops_hr_user_data_0508_1.sql`。接内网 MySQL 时由服务端 `.env` 配置数据库连接，Claude Code CLI 不保存数据库账号和密码。
@@ -91,7 +92,7 @@ X-Access-Reason: 联系候选人安排面试
 }
 ```
 
-实际 header 由 Gateway 基于 SSO 会话注入。客户端配置中不要出现数据库连接串、数据库用户名或数据库密码。
+实际身份 header 由 Gateway 基于 SSO 会话注入；生产环境还应由 Gateway 注入 `X-Gateway-Secret`，HR MCP 服务端用 `HR_GATEWAY_SHARED_SECRET` 校验。客户端配置中不要出现数据库连接串、数据库用户名或数据库密码。
 
 ## P0 验收问题
 

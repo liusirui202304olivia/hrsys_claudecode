@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 from hr_mcp.mcp.jsonrpc import JsonRpcError, JsonRpcHandler
 from hr_mcp.services.config_center import ConfigCenter
-from hr_mcp.services.identity_service import IdentityService
+from hr_mcp.services.identity_service import IdentityError, IdentityService
 from hr_mcp.services.runtime import RuntimeContainer, build_runtime
 
 
@@ -32,25 +32,40 @@ class HrMcpHttpApp:
             status = 200 if all(checks.values()) else 503
             return status, {"status": "ready" if status == 200 else "not_ready", "checks": checks}
         if method == "GET" and route == "/mcp/tools":
-            identity = self.identity_service.from_headers(headers)
-            if identity.role not in self.DEBUG_TOOL_ROLES:
+            identity_result = self._identity(headers)
+            if isinstance(identity_result, tuple):
+                return identity_result
+            if identity_result.role not in self.DEBUG_TOOL_ROLES:
                 return 403, {"error": "forbidden"}
             return 200, {"tools": self.runtime.router.list_tools()}
         if method == "POST" and route == "/mcp":
-            identity = self.identity_service.from_headers(headers)
+            identity_result = self._identity(headers)
+            if isinstance(identity_result, tuple):
+                return identity_result
             payload = self._json_body(body)
             if payload is None:
                 return 400, self._jsonrpc_error(None, JsonRpcError.PARSE_ERROR, "Invalid JSON body")
-            return 200, self.jsonrpc.handle(payload, identity)
+            return 200, self.jsonrpc.handle(payload, identity_result)
         if method == "POST" and route == "/internal/audit/query":
-            identity = self.identity_service.from_headers(headers)
-            if identity.role not in self.DEBUG_TOOL_ROLES:
+            identity_result = self._identity(headers)
+            if isinstance(identity_result, tuple):
+                return identity_result
+            if identity_result.role not in self.DEBUG_TOOL_ROLES:
                 return 403, {"error": "forbidden"}
             params = self._json_body(body) or {}
             query = parse_qs(parsed.query)
-            limit = int(params.get("limit") or (query.get("limit", [100])[0]) or 100)
+            try:
+                limit = int(params.get("limit") or (query.get("limit", [100])[0]) or 100)
+            except (TypeError, ValueError):
+                return 400, {"error": "invalid_limit"}
             return 200, {"records": self.runtime.read_audit_records(limit=limit)}
         return 404, {"error": "not_found"}
+
+    def _identity(self, headers: dict[str, str]):
+        try:
+            return self.identity_service.from_headers(headers)
+        except IdentityError:
+            return 401, {"error": "unauthorized_gateway"}
 
     def _json_body(self, body: bytes | str | None) -> dict[str, Any] | None:
         if body is None or body == b"" or body == "":
@@ -84,7 +99,10 @@ class _RequestHandler(BaseHTTPRequestHandler):
         return
 
     def _dispatch(self) -> None:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            length = 0
         body = self.rfile.read(length) if length else b""
         app: HrMcpHttpApp = self.server.app  # type: ignore[attr-defined]
         status, payload = app.handle_request(self.command, self.path, dict(self.headers.items()), body)

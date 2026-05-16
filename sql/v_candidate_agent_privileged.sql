@@ -1,5 +1,8 @@
 ﻿CREATE OR REPLACE VIEW v_candidate_agent_privileged AS
 SELECT
+    c.id AS candidate_id,
+    c.position_id,
+    c.source_id,
     c.status,
     c.reject_stage,
     c.hr_id,
@@ -29,10 +32,13 @@ SELECT
     p.category AS position_category,
     p.jd AS position_jd,
     p.is_active AS position_is_active,
+    s.name AS source_name,
+    s.full_name AS source_full_name,
     f.id AS follower_record_id,
     f.candidate_id AS follower_candidate_id,
     f.follower_id,
     f.is_current AS follower_is_current
 FROM hr_candidate c
 LEFT JOIN hr_position p ON p.id = c.position_id
+LEFT JOIN hr_source s ON s.id = c.source_id
 LEFT JOIN hr_candidate_follower f ON f.candidate_id = c.id AND f.is_current = 1;

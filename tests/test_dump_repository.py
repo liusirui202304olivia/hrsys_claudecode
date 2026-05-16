@@ -1,6 +1,10 @@
 ﻿from pathlib import Path
 
+import inspect
+import pytest
+
 from hr_mcp.repositories.dump_repository import DumpTalentRepository
+from hr_mcp.repositories.mysql_repository import MySQLTalentRepository
 
 
 SAMPLE_DUMP = r'''
@@ -91,3 +95,17 @@ def test_dump_repository_computes_position_distribution(tmp_path: Path):
         {"position_name": "应用软件开发工程师", "count": 1},
         {"position_name": "芯片建模工程师", "count": 1},
     ]
+
+
+def test_dump_repository_rejects_unknown_filters(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    with pytest.raises(ValueError):
+        repo.search_candidates({"free_sql": "status = 'x'"}, limit=10)
+
+
+def test_mysql_repository_uses_safe_view_not_raw_candidate_star():
+    source = inspect.getsource(MySQLTalentRepository)
+
+    assert "v_candidate_agent_privileged" in source
+    assert "SELECT c.*" not in source

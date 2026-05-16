@@ -126,7 +126,7 @@ def test_query_facts_returns_aggregate_without_contact_fields():
     assert result["count"] == 2
     assert "mobile" not in str(result)
     assert "email" not in str(result)
-    assert result["position_distribution"][0]["position_name"] == "芯片建模工程师"
+    assert {row["position_name"] for row in result["position_distribution"]} == {"芯片建模工程师", "应用软件开发工程师"}
 
 
 
@@ -143,3 +143,19 @@ def test_readonly_viewer_cannot_retrieve_candidate_profiles():
     )
 
     assert rows == []
+
+
+def test_query_facts_applies_recruiter_scope_to_aggregates():
+    _, query = make_services()
+    identity = IdentityContext(user_id=2, role="RECRUITER")
+
+    result = query.query_facts(
+        metrics=["count"],
+        filters={},
+        group_by=["position_name", "status"],
+        identity=identity,
+    )
+
+    assert result["count"] == 1
+    assert result["position_distribution"] == [{"position_name": "芯片建模工程师", "count": 1}]
+    assert result["status_distribution"] == [{"status": "SCREEN_PROCESS", "count": 1}]

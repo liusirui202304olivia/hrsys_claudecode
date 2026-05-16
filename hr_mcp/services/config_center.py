@@ -48,6 +48,10 @@ class ConfigCenter:
         return self.env.get("HR_DATA_BACKEND", "dump").lower()
 
     @property
+    def gateway_shared_secret(self) -> str | None:
+        return self.get("HR_GATEWAY_SHARED_SECRET")
+
+    @property
     def mysql_config(self) -> dict:
         return {
             "host": self.env.get("HR_DB_HOST", "127.0.0.1"),

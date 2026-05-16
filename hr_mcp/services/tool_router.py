@@ -10,7 +10,13 @@ class UnknownToolError(ValueError):
     pass
 
 
+class InvalidToolArgumentsError(ValueError):
+    pass
+
+
 class ToolRouter:
+    SAVE_ALLOWED_ROLES = {"HR_ADMIN", "RECRUITER"}
+
     def __init__(
         self,
         registry: ToolRegistry,
@@ -36,6 +42,8 @@ class ToolRouter:
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any] | None, identity: IdentityContext) -> dict[str, Any]:
         arguments = arguments or {}
+        if not isinstance(arguments, dict):
+            raise InvalidToolArgumentsError("Tool arguments must be an object")
         if not self.registry.has_tool(tool_name):
             raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
 
@@ -95,6 +103,7 @@ class ToolRouter:
                 )
             }
         elif tool_name == "save_screening_result":
+            self._assert_can_save(identity)
             result = {
                 "saved": self.result_store.save_screening_result(
                     screening_task_id=arguments.get("screening_task_id", ""),
@@ -109,6 +118,10 @@ class ToolRouter:
 
         self._audit(tool_name, arguments, result, identity)
         return result
+
+    def _assert_can_save(self, identity: IdentityContext) -> None:
+        if identity.role not in self.SAVE_ALLOWED_ROLES:
+            raise PermissionError("save_screening_result requires HR_ADMIN or RECRUITER role")
 
     def _audit(self, tool_name: str, arguments: dict[str, Any], result: dict[str, Any], identity: IdentityContext) -> None:
         if not self.audit_service:
@@ -148,4 +161,3 @@ class ToolRouter:
         if "policy" in result:
             return "returned screening policy"
         return "ok"
-
