@@ -1,4 +1,11 @@
-﻿import pytest
+﻿"""字段权限策略测试。
+
+该文件验证默认 Agent 可见字段、高权限字段、不可见字段和访问理由要求。
+测试明确保证候选人姓名、性别和拟入职时间原文返回，同时联系方式不会进入默认上下文。
+这些用例是字段白名单模型的回归保护。
+"""
+
+import pytest
 
 from hr_mcp.models.context import IdentityContext
 from hr_mcp.security.field_policy import FieldAccessError, FieldPolicy

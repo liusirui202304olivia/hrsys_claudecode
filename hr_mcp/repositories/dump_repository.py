@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""SQL dump 离线数据访问实现。
+
+该文件解析内网导出的 SQL dump，提取核心招聘表并生成候选人、岗位、来源的联表视图。
+它用于 P0 本地验证和测试，支持受控 filter、候选人详情读取和聚合分布计算。
+该层会读取原始字段，但不会直接决定 Agent 可见字段；安全投影由服务层完成。
+"""
+
+from __future__ import annotations
 
 import json
 import re

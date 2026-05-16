@@ -1,4 +1,11 @@
-﻿import json
+﻿"""岗位标准、分析、报告、结果存储与审计测试。
+
+该文件验证岗位别名能命中 Markdown 标准、人才池分析能输出结构、报告包含风险和下一步动作。
+它还检查分析样本经过安全投影、推荐结果和审计日志会清洗联系方式等敏感字段。
+这些用例覆盖 P0 中标准库、分析报告和持久化审计链路的主要安全要求。
+"""
+
+import json
 from pathlib import Path
 
 from hr_mcp.models.context import IdentityContext

@@ -1,4 +1,11 @@
-﻿from pathlib import Path
+﻿"""身份解析与配置中心测试。
+
+该文件验证 Gateway header 能构造 IdentityContext、本地 mock identity、默认最小权限和配置路径解析。
+它还覆盖 Gateway shared secret 配置，确保服务端可拒绝未受信 Gateway 的伪造角色 header。
+这些测试保护身份上下文作为后续权限判断输入的可信度。
+"""
+
+from pathlib import Path
 
 from hr_mcp.services.config_center import ConfigCenter
 from hr_mcp.services.identity_service import IdentityError, IdentityService

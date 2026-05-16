@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""MCP 工具路由服务。
+
+该文件根据 MCP tool name 把调用分发给具体业务服务，并统一记录审计。
+它不直接访问 repository，也不实现候选人筛选、Markdown 标准加载或报告生成细节。
+对于保存推荐结果等有写入副作用的工具，路由层会先执行工具级角色授权。
+"""
+
+from __future__ import annotations
 
 from typing import Any
 

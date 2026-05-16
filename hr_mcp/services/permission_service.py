@@ -1,4 +1,11 @@
-﻿from hr_mcp.models.context import IdentityContext
+﻿"""RBAC 与 ABAC 权限服务。
+
+该文件集中判断角色能力、候选人行级范围和高权限字段访问资格。
+HR_ADMIN 可访问全量候选人默认范围，RECRUITER、DEPARTMENT_MANAGER 和 INTERVIEWER 会按责任人、部门或面试关系过滤。
+READONLY_VIEWER 只用于聚合统计，不允许获取候选人明细。
+"""
+
+from hr_mcp.models.context import IdentityContext
 
 
 class PermissionService:

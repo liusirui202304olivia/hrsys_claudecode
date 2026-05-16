@@ -1,4 +1,11 @@
-﻿from hr_mcp.models.context import IdentityContext
+﻿"""候选人安全画像服务。
+
+该文件负责执行字段白名单校验、行级权限过滤和记录投影，是原始候选人数据进入 Agent 上下文前的安全边界。
+字段校验会先于行过滤发生，避免低权限请求高权限字段时因空结果绕过校验。
+所有候选人明细输出都应通过该服务，而不是由工具或 repository 直接返回。
+"""
+
+from hr_mcp.models.context import IdentityContext
 from hr_mcp.security.field_policy import FieldPolicy
 from hr_mcp.services.permission_service import PermissionService
 

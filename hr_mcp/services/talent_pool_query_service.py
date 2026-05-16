@@ -1,4 +1,11 @@
-﻿from collections import Counter
+﻿"""人才库事实问答服务。
+
+该文件提供 count、岗位分布、状态分布和来源分布等聚合事实查询。
+聚合会先按身份上下文进行范围收敛，READONLY_VIEWER 只拿聚合结果，不拿候选人明细。
+该服务不返回联系方式，也不暴露自由 SQL 查询能力。
+"""
+
+from collections import Counter
 from typing import Any
 
 from hr_mcp.models.context import IdentityContext

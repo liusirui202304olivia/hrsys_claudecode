@@ -1,4 +1,11 @@
-﻿from dataclasses import dataclass, field
+﻿"""字段权限策略定义。
+
+该文件维护 HR MCP 可向 Agent 暴露的默认字段、高权限字段和拒绝字段规则。
+它强制高权限字段必须由高权限角色并携带访问理由才能返回，未列入白名单的字段默认拒绝。
+候选人姓名、性别和拟入职时间按需求原文开放，联系方式则被限制在高权限路径。
+"""
+
+from dataclasses import dataclass, field
 
 
 class FieldAccessError(ValueError):

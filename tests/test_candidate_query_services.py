@@ -1,4 +1,11 @@
-﻿from hr_mcp.models.context import IdentityContext
+﻿"""候选人召回与人才库查询服务测试。
+
+该文件验证候选人明细必须经过安全投影、高权限字段对普通角色拒绝、批量详情限制和 READONLY 明细禁止访问。
+同时覆盖聚合事实查询的无联系方式输出，以及招聘者等角色的聚合范围收敛。
+这些测试保护 CandidateRetrievalService、TalentPoolQueryService 和 PermissionService 的核心安全边界。
+"""
+
+from hr_mcp.models.context import IdentityContext
 import pytest
 
 from hr_mcp.security.field_policy import FieldAccessError, FieldPolicy

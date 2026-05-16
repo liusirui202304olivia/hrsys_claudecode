@@ -1,4 +1,11 @@
-﻿class ReportGenerationService:
+﻿"""招聘报告生成服务。
+
+该文件把岗位标准、人才池分析和样本候选人组合成结构化 Markdown 报告。
+报告包含概览、质量分析、样本候选人、风险点和下一步动作等部分。
+它不直接访问数据库，输入应来自已经经过安全处理的 policy 与 analysis 结果。
+"""
+
+class ReportGenerationService:
     def generate_recruitment_report(self, report_type: str, policy: dict, analysis: dict, include_sections: list[str]) -> dict:
         position_name = policy.get("position_name") or policy.get("policy_id") or "岗位"
         title = f"{position_name}候选人池分析报告"

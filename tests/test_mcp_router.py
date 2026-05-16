@@ -1,4 +1,11 @@
-﻿import inspect
+﻿"""MCP 工具注册、路由与 JSON-RPC 测试。
+
+该文件验证 7 个 MCP 工具清单、工具调用分发、审计记录、未知工具错误和 malformed params 的 JSON-RPC error code。
+它还检查 ToolRouter 不 import repository，确保 MCP 层只做工具路由而不越层访问数据源。
+保存推荐结果的角色授权也在这里做回归验证。
+"""
+
+import inspect
 
 import pytest
 
@@ -165,4 +172,3 @@ def test_router_denies_readonly_save_screening_result():
             {"screening_task_id": "task-1", "policy_id": "policy-1", "recommended_candidates": []},
             identity,
         )
-

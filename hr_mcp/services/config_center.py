@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""配置中心服务。
+
+该文件统一加载 `.env`、环境变量和项目路径配置，包括 HTTP 监听地址、数据后端、MySQL 连接、审计路径和 Gateway shared secret。
+它只暴露配置读取能力，不保存业务状态，也不把数据库密钥写入客户端配置。
+生产环境可通过 `HR_GATEWAY_SHARED_SECRET` 校验可信 Gateway 注入的身份 header。
+"""
+
+from __future__ import annotations
 
 import os
 from pathlib import Path

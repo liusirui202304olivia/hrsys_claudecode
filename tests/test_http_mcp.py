@@ -1,4 +1,11 @@
-﻿import json
+﻿"""HTTP MCP 应用测试。
+
+该文件通过内存方式调用 HTTP app，验证健康检查、就绪检查、MCP tools/list、tools/call 和调试工具清单权限。
+它还模拟 Gateway header，确认高权限字段访问、READONLY 明细限制和 Gateway shared secret 防伪逻辑生效。
+测试避免真实网络依赖，但覆盖 HTTP 层到服务层的主要请求路径。
+"""
+
+import json
 from pathlib import Path
 
 from hr_mcp.http.app import create_app

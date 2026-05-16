@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""运行时依赖装配服务。
+
+该文件负责根据配置组装 repository、安全策略、各业务服务、工具注册、工具路由和审计/结果存储。
+它是 HTTP app 与业务服务之间的组合根，避免在 HTTP 层散落依赖创建逻辑。
+除装配和 readiness 检查外，本文件不实现具体招聘业务规则。
+"""
+
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -83,4 +90,3 @@ def _build_repository(config: ConfigCenter):
     if config.data_backend == "mysql":
         return MySQLTalentRepository(config.mysql_config)
     return DumpTalentRepository(config.dump_path)
-

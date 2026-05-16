@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""MCP 工具注册服务。
+
+该文件集中声明 HR MCP P0 暴露给 Agent 的 7 个工具、入参 schema 和出参说明。
+候选人 filter schema 在这里收紧为白名单字段，防止工具调用层传入自由条件或未知参数。
+ToolRegistry 只描述工具，不执行工具逻辑；具体分发由 ToolRouter 完成。
+"""
+
+from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any

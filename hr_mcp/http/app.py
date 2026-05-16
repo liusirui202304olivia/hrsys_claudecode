@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""HTTP MCP 应用入口。
+
+该文件提供 `/healthz`、`/readyz`、`/mcp`、`/mcp/tools` 和内部审计查询接口。
+它负责把 Gateway header 解析为身份上下文，把 HTTP JSON 请求交给 MCP JSON-RPC handler，并把结果序列化为 HTTP 响应。
+本层不直接访问 SQL dump 或 MySQL，也不实现候选人筛选、字段白名单或招聘分析逻辑。
+"""
+
+from __future__ import annotations
 
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

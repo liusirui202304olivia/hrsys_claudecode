@@ -1,4 +1,11 @@
-﻿from hr_mcp.models.context import IdentityContext
+﻿"""候选人召回服务。
+
+该文件提供候选人安全画像搜索和候选人详情批量读取能力。
+它控制召回数量和批量详情上限，并把 repository 返回的原始记录交给 CandidateSafeViewService 做安全投影。
+该服务是 Agent 获取候选人明细的主要入口，不能绕过字段白名单或行级权限。
+"""
+
+from hr_mcp.models.context import IdentityContext
 from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
 
 

@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""岗位筛选标准服务。
+
+该文件加载 `config/policies` 中的岗位 metadata，并关联 `standard_markdown` 下的 Markdown 标准内容。
+它支持岗位名称和别名匹配，为 Agent 推荐和报告生成提供岗位筛选依据。
+该服务只处理标准库读取和匹配，不访问候选人数据库。
+"""
+
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any

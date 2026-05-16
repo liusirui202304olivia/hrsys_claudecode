@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""审计追踪服务。
+
+该文件负责把 MCP 工具调用、用户身份、候选人范围、字段范围和访问理由写入本地 JSONL 审计日志。
+审计入参会清洗联系方式等敏感字段，避免日志成为绕过字段策略的泄露通道。
+该服务不决定工具权限，只记录已经经过路由和服务层处理的调用事实。
+"""
+
+from __future__ import annotations
 
 import json
 from datetime import datetime, timezone

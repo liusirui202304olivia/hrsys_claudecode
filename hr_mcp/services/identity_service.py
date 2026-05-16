@@ -1,4 +1,11 @@
-﻿from hr_mcp.models.context import IdentityContext
+﻿"""身份解析服务。
+
+该文件把 API Gateway 透传的 header 转换为 `IdentityContext`，并支持本地开发 mock identity。
+当配置 Gateway shared secret 时，它会要求请求携带匹配的 `X-Gateway-Secret`，避免客户端直连伪造角色。
+身份服务不判断字段可见性，只为权限服务、审计和工具路由提供可信上下文。
+"""
+
+from hr_mcp.models.context import IdentityContext
 from hr_mcp.services.config_center import ConfigCenter
 
 

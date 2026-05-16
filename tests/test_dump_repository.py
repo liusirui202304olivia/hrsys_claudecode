@@ -1,4 +1,11 @@
-﻿from pathlib import Path
+﻿"""SQL dump 与 MySQL repository 测试。
+
+该文件用小型 SQL dump fixture 验证表结构解析、候选人/岗位/来源联表、受控 filter 和岗位分布计算。
+同时检查未知 filter 会被拒绝，并确认 MySQL repository 走安全视图而不是直接 `SELECT c.*` 原表。
+这些测试保证数据访问层可用于离线验证，并维持 P0 不暴露自由 SQL 的约束。
+"""
+
+from pathlib import Path
 
 import inspect
 import pytest

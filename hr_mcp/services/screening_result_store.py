@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""推荐结果存储服务。
+
+该文件把 Agent 产出的筛选任务 ID、岗位标准 ID、推荐候选人 JSON、摘要和操作者身份写入本地 JSONL。
+存储前会移除联系方式和用户名等敏感字段，避免推荐结果落盘时绕过字段权限。
+工具级授权由 ToolRouter 控制，存储服务专注于持久化和字段清洗。
+"""
+
+from __future__ import annotations
 
 import json
 from datetime import datetime, timezone

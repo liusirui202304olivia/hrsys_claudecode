@@ -1,4 +1,11 @@
-﻿from __future__ import annotations
+﻿"""MySQL 受控数据访问实现。
+
+该文件封装线上 MySQL 访问路径，仅接受明确白名单 filter，并通过安全视图读取候选人数据。
+它禁止自由 SQL 和未知 filter，避免调用方因为拼接条件或静默忽略参数导致越权查询。
+Repository 返回的记录仍需经过 safe view service 和 field policy 后才能暴露给 MCP 工具。
+"""
+
+from __future__ import annotations
 
 from typing import Any
 

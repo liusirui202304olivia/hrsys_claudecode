@@ -1,4 +1,11 @@
-﻿from collections import Counter
+﻿"""招聘数据分析服务。
+
+该文件生成候选池结构分析、状态/岗位/来源分布、总量统计、观察结论和安全样本候选人。
+分析会根据身份上下文收敛候选人范围，并对样本候选人执行安全投影，避免联系方式进入报告上下文。
+它从 repository 获取受控数据，但不直接决定字段可见性。
+"""
+
+from collections import Counter
 from typing import Any
 
 from hr_mcp.models.context import IdentityContext
