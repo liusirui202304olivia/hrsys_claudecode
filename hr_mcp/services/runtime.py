@@ -1,8 +1,8 @@
 ﻿"""运行时依赖装配服务。
 
-该文件负责根据配置组装 repository、安全策略、各业务服务、工具注册、工具路由和审计/结果存储。
-它是 HTTP app 与业务服务之间的组合根，避免在 HTTP 层散落依赖创建逻辑。
-除装配和 readiness 检查外，本文件不实现具体招聘业务规则。
+该文件负责根据配置组装 repository、安全策略、数据服务、工具注册、工具路由和审计/结果存储。
+它是 HTTP app 与安全数据服务之间的组合根，避免在 HTTP 层散落依赖创建逻辑。
+本文件不装配岗位标准读取、候选人推荐、招聘分析或报告生成等 Agent 业务推理能力。
 """
 
 from __future__ import annotations
@@ -20,10 +20,7 @@ from hr_mcp.services.candidate_retrieval_service import CandidateRetrievalServic
 from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
 from hr_mcp.services.config_center import ConfigCenter
 from hr_mcp.services.permission_service import PermissionService
-from hr_mcp.services.report_generation_service import ReportGenerationService
-from hr_mcp.services.screening_policy_service import ScreeningPolicyService
 from hr_mcp.services.screening_result_store import ScreeningResultStore
-from hr_mcp.services.talent_analysis_service import TalentAnalysisService
 from hr_mcp.services.talent_pool_query_service import TalentPoolQueryService
 from hr_mcp.services.tool_registry import ToolRegistry
 from hr_mcp.services.tool_router import ToolRouter
@@ -68,18 +65,12 @@ def build_runtime(config: ConfigCenter | None = None) -> RuntimeContainer:
     safe_view_service = CandidateSafeViewService(field_policy, permission_service)
     retrieval_service = CandidateRetrievalService(repository, safe_view_service)
     talent_query_service = TalentPoolQueryService(repository, safe_view_service)
-    policy_service = ScreeningPolicyService(config.policy_dir, config.standard_markdown_dir)
-    analysis_service = TalentAnalysisService(repository, safe_view_service)
-    report_service = ReportGenerationService()
     result_store = ScreeningResultStore(config.result_path)
     audit_service = AuditTraceService(config.audit_path)
     router = ToolRouter(
         registry=ToolRegistry(),
-        policy_service=policy_service,
         retrieval_service=retrieval_service,
         talent_query_service=talent_query_service,
-        analysis_service=analysis_service,
-        report_service=report_service,
         result_store=result_store,
         audit_service=audit_service,
     )

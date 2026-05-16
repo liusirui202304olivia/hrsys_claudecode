@@ -2,7 +2,7 @@
 
 该文件通过内存方式调用 HTTP app，验证健康检查、就绪检查、MCP tools/list、tools/call 和调试工具清单权限。
 它还模拟 Gateway header，确认高权限字段访问、READONLY 明细限制和 Gateway shared secret 防伪逻辑生效。
-测试避免真实网络依赖，但覆盖 HTTP 层到服务层的主要请求路径。
+测试避免真实网络依赖，但覆盖 HTTP 层到安全数据服务层的主要请求路径。
 """
 
 import json
@@ -59,19 +59,10 @@ INSERT INTO `hr_source` VALUES (10,'历史导入','其他/历史导入');
 def make_project(tmp_path: Path) -> Path:
     dump_dir = tmp_path / "hr_data_sample"
     standard_dir = tmp_path / "standard_markdown"
-    policy_dir = tmp_path / "config" / "policies"
     dump_dir.mkdir(parents=True)
     standard_dir.mkdir(parents=True)
-    policy_dir.mkdir(parents=True)
     (dump_dir / "devops_hr_user_data_0508_1.sql").write_text(SAMPLE_DUMP, encoding="utf-8")
     (standard_dir / "chip.md").write_text("# 芯片建模工程师筛选标准\n- C++\n- gem5", encoding="utf-8")
-    (policy_dir / "chip.yml").write_text(
-        "policy_id: chip_modeling_v1\n"
-        "position_name: 芯片建模工程师\n"
-        "markdown_file: chip.md\n"
-        "aliases:\n  - 芯片建模\n",
-        encoding="utf-8",
-    )
     return tmp_path
 
 
@@ -85,10 +76,10 @@ def test_healthz_readyz_and_admin_tools_endpoint(tmp_path: Path):
     assert ready_status == 200
     assert ready_body["checks"]["database"] is True
     assert tools_status == 200
-    assert len(tools_body["tools"]) == 7
+    assert len(tools_body["tools"]) == 4
 
 
-def test_mcp_tools_list_and_policy_call(tmp_path: Path):
+def test_mcp_tools_list_and_facts_call(tmp_path: Path):
     app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
 
     list_status, list_body = app.handle_request(
@@ -105,14 +96,19 @@ def test_mcp_tools_list_and_policy_call(tmp_path: Path):
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
-            "params": {"name": "get_screening_policy", "arguments": {"position_query": "芯片建模"}},
+            "params": {"name": "query_talent_pool_facts", "arguments": {"metrics": ["count"], "group_by": ["position_name"]}},
         }).encode("utf-8"),
     )
 
     assert list_status == 200
-    assert list_body["result"]["tools"][0]["name"] == "get_screening_policy"
+    assert [tool["name"] for tool in list_body["result"]["tools"]] == [
+        "search_candidate_safe_profiles",
+        "get_candidate_safe_detail_batch",
+        "query_talent_pool_facts",
+        "save_screening_result",
+    ]
     assert call_status == 200
-    assert call_body["result"]["policy"]["policy_id"] == "chip_modeling_v1"
+    assert call_body["result"]["facts"]["count"] == 1
 
 
 def test_gateway_headers_control_privileged_candidate_fields(tmp_path: Path):

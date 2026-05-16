@@ -6,7 +6,9 @@ Claude Code CLI / ai_cli 只连接公司 API Gateway，不持有数据库账号�
 
 请求链路：
 
-`Claude Code CLI / ai_cli -> API Gateway -> HR MCP/API Service -> 受控服务层 -> SQL 人才数据库`
+`Claude Code CLI / ai_cli -> API Gateway -> HR MCP/API Service -> 受控安全数据服务 -> SQL 人才数据库`
+
+HR MCP/API 后端是安全数据服务层，不是 HR 业务 Agent。筛选、推荐、问答、分析和报告由 Claude Code CLI + 项目内 Skill 完成。
 
 ## Gateway 路由
 
@@ -33,8 +35,7 @@ Gateway 必须透传以下 header：
 
 ## 权限模型
 
-默认 Agent 可见字段只包含已确认字段。候选人
-ame`、`gender`、`proposed_join_date` 按原文返回，不掩码。
+默认 Agent 可见字段只包含已确认字段。候选人 `name`、`gender`、`proposed_join_date` 按原文返回，不掩码。
 
 高权限字段：
 

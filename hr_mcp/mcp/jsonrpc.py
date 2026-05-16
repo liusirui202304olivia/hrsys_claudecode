@@ -2,7 +2,7 @@
 
 该文件负责识别 `tools/list` 与 `tools/call` 请求，校验 JSON-RPC 基本结构，并把调用交给 ToolRouter。
 它将未知方法、未知工具、参数类型错误和内部异常映射为稳定的 JSON-RPC error code。
-协议边界在这里终止；候选人权限、字段策略、查询和报告生成都由服务层完成。
+协议边界在这里终止；候选人权限、字段策略、事实查询和结果保存都由安全数据服务层完成。
 """
 
 from __future__ import annotations

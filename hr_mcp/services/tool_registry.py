@@ -1,8 +1,8 @@
 ﻿"""MCP 工具注册服务。
 
-该文件集中声明 HR MCP P0 暴露给 Agent 的 7 个工具、入参 schema 和出参说明。
+该文件集中声明 HR MCP P0 暴露给 Claude Code Agent 的 4 个安全数据工具、入参 schema 和出参说明。
+后端只提供候选人安全画像、候选人召回、聚合事实查询和推荐结果保存，不提供筛选推荐、问答、分析或报告生成。
 候选人 filter schema 在这里收紧为白名单字段，防止工具调用层传入自由条件或未知参数。
-ToolRegistry 只描述工具，不执行工具逻辑；具体分发由 ToolRouter 完成。
 """
 
 from __future__ import annotations
@@ -29,19 +29,6 @@ CANDIDATE_FILTER_SCHEMA: dict[str, Any] = {
 
 class ToolRegistry:
     TOOL_DEFINITIONS: list[dict[str, Any]] = [
-        {
-            "name": "get_screening_policy",
-            "description": "Load Markdown screening policy by position name or alias.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "position_query": {"type": "string"},
-                    "department_hint": {"type": "string"},
-                },
-                "required": ["position_query"],
-            },
-            "output_schema": {"type": "object", "properties": {"policy": {"type": "object"}}},
-        },
         {
             "name": "search_candidate_safe_profiles",
             "description": "Search candidates and return field-policy-filtered safe profiles.",
@@ -82,46 +69,27 @@ class ToolRegistry:
             "output_schema": {"type": "object", "properties": {"facts": {"type": "object"}}},
         },
         {
-            "name": "analyze_talent_pool",
-            "description": "Generate structured recruiting analysis for a candidate pool.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "analysis_target": {"type": "string"},
-                    "policy_id": {"type": "string"},
-                    "filters": CANDIDATE_FILTER_SCHEMA,
-                    "dimensions": {"type": "array", "items": {"type": "string"}},
-                    "sample_limit": {"type": "integer", "minimum": 0, "maximum": 30},
-                },
-            },
-            "output_schema": {"type": "object", "properties": {"analysis": {"type": "object"}}},
-        },
-        {
-            "name": "generate_recruitment_report",
-            "description": "Build a structured Markdown recruitment report from policy and analysis input.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "report_type": {"type": "string"},
-                    "policy": {"type": "object"},
-                    "analysis": {"type": "object"},
-                    "include_sections": {"type": "array", "items": {"type": "string"}},
-                },
-            },
-            "output_schema": {"type": "object", "properties": {"report": {"type": "object"}}},
-        },
-        {
             "name": "save_screening_result",
-            "description": "Persist recommended candidates for a screening task and audit the save.",
+            "description": "Persist Agent-generated screening recommendations and audit the save.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "screening_task_id": {"type": "string"},
-                    "policy_id": {"type": "string"},
-                    "recommended_candidates": {"type": "array", "items": {"type": "object"}},
-                    "summary": {"type": "string"},
+                    "task_id": {"type": "string"},
+                    "standard_ref": {"type": "string"},
+                    "recommended_candidates": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "candidate_id": {"type": ["integer", "string"]},
+                                "recommend_reason": {"type": "string"},
+                                "risk_points": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["candidate_id", "recommend_reason", "risk_points"],
+                        },
+                    },
                 },
-                "required": ["screening_task_id", "policy_id", "recommended_candidates"],
+                "required": ["task_id", "standard_ref", "recommended_candidates"],
             },
             "output_schema": {"type": "object", "properties": {"saved": {"type": "object"}}},
         },
