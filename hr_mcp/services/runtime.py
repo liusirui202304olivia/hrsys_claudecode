@@ -62,7 +62,7 @@ def build_runtime(config: ConfigCenter | None = None) -> RuntimeContainer:
     retrieval_service = CandidateRetrievalService(repository, safe_view_service)
     talent_query_service = TalentPoolQueryService(repository, safe_view_service)
     policy_service = ScreeningPolicyService(config.policy_dir, config.standard_markdown_dir)
-    analysis_service = TalentAnalysisService(repository)
+    analysis_service = TalentAnalysisService(repository, safe_view_service)
     report_service = ReportGenerationService()
     result_store = ScreeningResultStore(config.result_path)
     audit_service = AuditTraceService(config.audit_path)
@@ -83,3 +83,4 @@ def _build_repository(config: ConfigCenter):
     if config.data_backend == "mysql":
         return MySQLTalentRepository(config.mysql_config)
     return DumpTalentRepository(config.dump_path)
+

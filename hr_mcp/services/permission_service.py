@@ -6,8 +6,10 @@ class PermissionService:
         return identity.role == "HR_ADMIN" and bool(identity.access_reason)
 
     def filter_candidate_records(self, records: list[dict], identity: IdentityContext) -> list[dict]:
-        if identity.role in {"HR_ADMIN", "READONLY_VIEWER"}:
+        if identity.role == "HR_ADMIN":
             return records
+        if identity.role == "READONLY_VIEWER":
+            return []
         if identity.role == "RECRUITER" and identity.user_id is not None:
             return [row for row in records if row.get("hr_id") == identity.user_id or row.get("follower_id") == identity.user_id]
         if identity.role == "DEPARTMENT_MANAGER" and identity.department_id is not None:

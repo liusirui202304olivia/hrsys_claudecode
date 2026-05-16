@@ -129,3 +129,17 @@ def test_query_facts_returns_aggregate_without_contact_fields():
     assert result["position_distribution"][0]["position_name"] == "芯片建模工程师"
 
 
+
+
+def test_readonly_viewer_cannot_retrieve_candidate_profiles():
+    retrieval, _ = make_services()
+    identity = IdentityContext(user_id=9, role="READONLY_VIEWER")
+
+    rows = retrieval.search_safe_profiles(
+        filters={},
+        return_fields=["name", "gender", "status"],
+        limit=10,
+        identity=identity,
+    )
+
+    assert rows == []

@@ -77,6 +77,7 @@ class ToolRouter:
                     filters=arguments.get("filters") or {},
                     dimensions=arguments.get("dimensions") or [],
                     sample_limit=arguments.get("sample_limit") or 10,
+                    identity=identity,
                 )
             }
         elif tool_name == "generate_recruitment_report":
@@ -147,3 +148,4 @@ class ToolRouter:
         if "policy" in result:
             return "returned screening policy"
         return "ok"
+

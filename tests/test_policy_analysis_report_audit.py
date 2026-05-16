@@ -110,3 +110,40 @@ def test_result_store_and_audit_write_jsonl(tmp_path: Path):
     assert saved["screening_task_id"] == "task-1"
     assert json.loads(result_path.read_text(encoding="utf-8").splitlines()[0])["policy_id"] == "chip_modeling_v1"
     assert json.loads(audit_path.read_text(encoding="utf-8").splitlines()[0])["tool_name"] == "save_screening_result"
+
+
+def test_talent_analysis_samples_use_safe_projection_without_contacts():
+    from hr_mcp.security.field_policy import FieldPolicy
+    from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
+    from hr_mcp.services.permission_service import PermissionService
+
+    safe_view = CandidateSafeViewService(FieldPolicy(), PermissionService())
+    class ContactRepository(FakeRepository):
+        def search_candidates(self, filters, limit):
+            return [
+                {
+                    "candidate_id": 1,
+                    "name": "张三",
+                    "status": "SCREEN_PROCESS",
+                    "mobile": "13800000000",
+                    "email": "z@example.com",
+                }
+            ][:limit]
+
+    service = TalentAnalysisService(ContactRepository(), safe_view_service=safe_view)
+    identity = IdentityContext(user_id=1, role="HR_ADMIN")
+
+    result = service.analyze_talent_pool(
+        analysis_target="芯片建模候选人池",
+        policy_id="chip_modeling_v1",
+        filters={},
+        dimensions=[],
+        sample_limit=1,
+        identity=identity,
+    )
+
+    sample_text = json.dumps(result["sample_candidates"], ensure_ascii=False)
+    assert "张三" in sample_text
+    assert "mobile" not in sample_text
+    assert "email" not in sample_text
+

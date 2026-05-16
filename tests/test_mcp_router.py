@@ -25,7 +25,7 @@ class FakeTalentQueryService:
 
 
 class FakeAnalysisService:
-    def analyze_talent_pool(self, analysis_target, policy_id, filters, dimensions, sample_limit):
+    def analyze_talent_pool(self, analysis_target, policy_id, filters, dimensions, sample_limit, identity=None):
         return {"analysis_target": analysis_target, "summary_stats": {"total_candidates": 2}}
 
 
@@ -134,3 +134,4 @@ def test_tool_router_does_not_import_repository_layer():
     assert "repositories" not in source
     assert "mysql_repository" not in source
     assert "dump_repository" not in source
+
