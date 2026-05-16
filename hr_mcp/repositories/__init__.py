@@ -1,1 +1,2 @@
-﻿
+﻿from hr_mcp.repositories.dump_repository import DumpTalentRepository
+from hr_mcp.repositories.mysql_repository import MySQLTalentRepository
