@@ -38,7 +38,10 @@ class PermissionService:
         if identity.role == "READONLY_VIEWER":
             return []
         if identity.role == "RECRUITER" and identity.user_id is not None:
-            return [row for row in records if row.get("hr_id") == identity.user_id or row.get("follower_id") == identity.user_id]
+            return [
+                row for row in records
+                if row.get("hr_id") == identity.user_id or self._follower_matches(row, identity.user_id)
+            ]
         if identity.role == "DEPARTMENT_MANAGER" and identity.department_id is not None:
             return [row for row in records if row.get("proposed_department_id") == identity.department_id]
         if identity.role == "INTERVIEWER" and identity.user_id is not None:
@@ -52,3 +55,13 @@ class PermissionService:
         if isinstance(interviewer_ids, str):
             interviewer_ids = [item.strip() for item in interviewer_ids.split(",") if item.strip()]
         return str(user_id) in {str(interviewer_id) for interviewer_id in interviewer_ids}
+
+    def _follower_matches(self, row: Dict[str, Any], user_id: int) -> bool:
+        if row.get("follower_id") == user_id:
+            return True
+        follower_ids = row.get("follower_ids") or []
+        if isinstance(follower_ids, str):
+            follower_ids = [item.strip() for item in follower_ids.split(",") if item.strip()]
+        elif not isinstance(follower_ids, (list, tuple, set)):
+            follower_ids = [follower_ids]
+        return str(user_id) in {str(follower_id).strip() for follower_id in follower_ids}

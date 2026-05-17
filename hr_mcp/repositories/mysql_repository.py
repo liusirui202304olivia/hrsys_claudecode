@@ -43,7 +43,12 @@ class MySQLTalentRepository:
                 cursorclass=pymysql.cursors.DictCursor,
                 connect_timeout=3,
             )
-            connection.close()
+            try:
+                with connection.cursor() as cursor:
+                    for view_name in [self.SAFE_VIEW, self.PRIVILEGED_VIEW]:
+                        cursor.execute(f"SELECT candidate_id FROM {view_name} LIMIT 1")
+            finally:
+                connection.close()
             return True
         except Exception:
             return False

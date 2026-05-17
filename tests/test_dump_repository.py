@@ -6,7 +6,9 @@
 """
 
 import re
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import inspect
 import pytest
@@ -254,3 +256,67 @@ def test_mysql_repository_recruiter_scope_uses_aggregated_follower_ids():
     assert "FIND_IN_SET(%s, COALESCE(v.follower_ids, ''))" in combined_sql
     assert re.search(r"\bv\.follower_id\b", combined_sql) is None
     assert repo.params_list[0][:2] == [42, 42]
+
+
+def test_mysql_repository_ready_checks_both_candidate_views(monkeypatch):
+    executed_sql = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql, params=None):
+            executed_sql.append(sql)
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    fake_pymysql = SimpleNamespace(
+        connect=lambda **kwargs: FakeConnection(),
+        cursors=SimpleNamespace(DictCursor=object),
+    )
+    monkeypatch.setitem(sys.modules, "pymysql", fake_pymysql)
+
+    repo = MySQLTalentRepository({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+
+    assert repo.ready() is True
+    combined_sql = "\n".join(executed_sql)
+    assert "SELECT candidate_id FROM v_candidate_agent_safe LIMIT 1" in combined_sql
+    assert "SELECT candidate_id FROM v_candidate_agent_privileged LIMIT 1" in combined_sql
+
+
+def test_mysql_repository_ready_fails_when_any_candidate_view_is_missing(monkeypatch):
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql, params=None):
+            if "v_candidate_agent_privileged" in sql:
+                raise RuntimeError("view does not exist")
+
+    class FakeConnection:
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    fake_pymysql = SimpleNamespace(
+        connect=lambda **kwargs: FakeConnection(),
+        cursors=SimpleNamespace(DictCursor=object),
+    )
+    monkeypatch.setitem(sys.modules, "pymysql", fake_pymysql)
+
+    repo = MySQLTalentRepository({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+
+    assert repo.ready() is False

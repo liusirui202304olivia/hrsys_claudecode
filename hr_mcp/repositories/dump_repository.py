@@ -135,7 +135,7 @@ class DumpTalentRepository:
         role = scope.get("role")
         if role == "RECRUITER":
             user_id = scope.get("user_id")
-            return [row for row in rows if row.get("hr_id") == user_id or row.get("follower_id") == user_id]
+            return [row for row in rows if row.get("hr_id") == user_id or self._follower_matches(row, user_id)]
         if role == "DEPARTMENT_MANAGER":
             department_id = scope.get("department_id")
             return [row for row in rows if row.get("proposed_department_id") == department_id]
@@ -271,6 +271,7 @@ class DumpTalentRepository:
     def _joined_candidates(self) -> List[Dict[str, Any]]:
         positions = {row.get("id"): row for row in self.table("hr_position")}
         sources = {row.get("id"): row for row in self.table("hr_source")}
+        follower_ids = self._follower_ids_by_candidate()
         interviewer_ids = self._interviewer_ids_by_candidate()
         joined: List[Dict[str, Any]] = []
         for candidate in self.table("hr_candidate"):
@@ -284,9 +285,22 @@ class DumpTalentRepository:
             row["position_is_active"] = position.get("is_active")
             row["source_name"] = source.get("name")
             row["source_full_name"] = source.get("full_name")
+            row["follower_ids"] = follower_ids.get(candidate.get("id"), [])
             row["interviewer_ids"] = interviewer_ids.get(candidate.get("id"), [])
             joined.append(row)
         return joined
+
+    def _follower_ids_by_candidate(self) -> Dict[Any, List[Any]]:
+        result: Dict[Any, Set[Any]] = {}
+        for follower in self.table("hr_candidate_follower"):
+            if not follower.get("is_current"):
+                continue
+            candidate_id = follower.get("candidate_id")
+            follower_id = follower.get("follower_id")
+            if candidate_id is None or follower_id is None:
+                continue
+            result.setdefault(candidate_id, set()).add(follower_id)
+        return {candidate_id: sorted(followers) for candidate_id, followers in result.items()}
 
     def _interviewer_ids_by_candidate(self) -> Dict[Any, List[Any]]:
         result: Dict[Any, Set[Any]] = {}
@@ -333,3 +347,13 @@ class DumpTalentRepository:
             row.get("experiences"), row.get("project_experiences"), row.get("skills"),
         ]
         return json.dumps(fields, ensure_ascii=False, default=str).lower()
+
+    def _follower_matches(self, row: Dict[str, Any], user_id: Any) -> bool:
+        if row.get("follower_id") == user_id:
+            return True
+        follower_ids = row.get("follower_ids") or []
+        if isinstance(follower_ids, str):
+            follower_ids = [item.strip() for item in follower_ids.split(",") if item.strip()]
+        elif not isinstance(follower_ids, (list, tuple, set)):
+            follower_ids = [follower_ids]
+        return str(user_id) in {str(follower_id).strip() for follower_id in follower_ids}

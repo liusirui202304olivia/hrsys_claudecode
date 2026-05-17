@@ -58,6 +58,32 @@ v_candidate_agent_safe
 v_candidate_agent_privileged
 ```
 
+真实库当前没有这两个 view，首次部署直接执行项目内 SQL 文件：
+
+```bash
+mysql -h 10.100.15.22 -P 3306 -u <db_dev_user> -p devops < app/sql/v_candidate_agent_safe.sql
+mysql -h 10.100.15.22 -P 3306 -u <db_dev_user> -p devops < app/sql/v_candidate_agent_privileged.sql
+```
+
+执行后验证 view 可查、候选人唯一、safe/privileged 行数一致：
+
+```sql
+SELECT candidate_id FROM devops.v_candidate_agent_safe LIMIT 1;
+SELECT candidate_id FROM devops.v_candidate_agent_privileged LIMIT 1;
+
+SELECT COUNT(*) AS total_rows, COUNT(DISTINCT candidate_id) AS distinct_candidates
+FROM devops.v_candidate_agent_safe;
+
+SELECT COUNT(*) AS total_rows, COUNT(DISTINCT candidate_id) AS distinct_candidates
+FROM devops.v_candidate_agent_privileged;
+
+SELECT
+  (SELECT COUNT(*) FROM devops.v_candidate_agent_safe) AS safe_count,
+  (SELECT COUNT(*) FROM devops.v_candidate_agent_privileged) AS privileged_count;
+```
+
+`total_rows` 必须等于 `distinct_candidates`，`safe_count` 必须等于 `privileged_count`。MCP 服务不自动创建或更新 view，只在 `/readyz` 检查两个 view 是否可查询。
+
 ## 启动
 
 正式推荐 `systemd` 或已有进程托管；没有权限时可用 `nohup` 做临时联调：
