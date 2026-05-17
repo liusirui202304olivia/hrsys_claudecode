@@ -27,6 +27,29 @@ DEPLOY=$BASE/deploy
 └── deploy/     # systemd/nohup/check 脚本
 ```
 
+## 0.5 网络与文件流转边界
+
+当前代码在外网 Windows 本地 `D:\hr_for_claudecode`，本地不能直连内网，也不能直接访问 MySQL。
+部署链路固定为：
+
+```text
+外网 Windows 本地
+  -> 生成 release zip
+  -> 通过 NoMachine 连接 nx2 并传入内网
+  -> 在 nx2 或 10.100.15.22 可访问的 shell 中解压到部署目录
+  -> 只在内网执行 MySQL、curl、服务启动和 Claude Code CLI 联调
+```
+
+不要在外网本地执行这些命令：
+
+```bash
+mysql -h 10.100.15.22 ...
+curl http://10.100.15.22:8765/readyz
+claude mcp add ... http://10.100.15.22:8765/mcp
+```
+
+这些命令只能在 NoMachine/nx2 或内网研发机环境执行。
+
 ## 1. 验证目录可写
 
 在内网部署机器上用服务运行用户执行：
@@ -53,7 +76,7 @@ ok
 
 ## 2. 拷贝代码
 
-推荐直接在 `app/` 目录拉取已验证 commit：
+如果内网能访问代码仓库，推荐直接在 `app/` 目录拉取已验证 commit：
 
 ```bash
 BASE=/workspace/devops/env_prod/service/ai/hr_mcp
@@ -62,7 +85,40 @@ git clone <repo-url> .
 git checkout <已验证commit>
 ```
 
-如果不能 git clone，可以离线拷贝项目，但必须排除：
+如果内网不能访问外网代码仓库，走 NoMachine 离线包方式。
+
+外网 Windows 本地先在 `D:\hr_for_claudecode` 执行：
+
+```powershell
+python -m pytest tests -q
+git status -sb
+powershell -ExecutionPolicy Bypass -File .\deploy\package_release.ps1
+```
+
+脚本会生成：
+
+```text
+D:\hr_for_claudecode\release\hr_mcp_release_<commit>.zip
+```
+
+通过 NoMachine 连接 nx2，把这个 zip 传入内网，例如放到：
+
+```text
+/workspace/devops/env_prod/service/ai/hr_mcp/hr_mcp_release_<commit>.zip
+```
+
+然后在 nx2 或能访问部署目录的内网 shell 中执行：
+
+```bash
+BASE=/workspace/devops/env_prod/service/ai/hr_mcp
+rm -rf "$BASE/app"
+mkdir -p "$BASE/app"
+cd "$BASE/app"
+unzip "$BASE/hr_mcp_release_<commit>.zip"
+```
+
+离线包由 `git archive` 生成，只包含 git 已跟踪文件，天然不会包含 `.env`、真实 token、运行日志、venv、pytest 缓存。
+如果手工复制项目，必须排除：
 
 ```text
 .git/

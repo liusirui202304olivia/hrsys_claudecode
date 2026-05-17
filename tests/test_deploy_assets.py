@@ -19,6 +19,7 @@ def read(relative_path):
 
 def test_deploy_scripts_use_intranet_production_base_path():
     expected_paths = [
+        "deploy/package_release.ps1",
         "deploy/hr-mcp.service",
         "deploy/start_hr_mcp_nohup.sh",
         "deploy/stop_hr_mcp_nohup.sh",
@@ -51,6 +52,24 @@ def test_nohup_script_points_service_to_base_env_without_sourcing_secrets():
     assert 'export HR_MCP_ENV_PATH="$ENV_FILE"' in script
     assert '. "$ENV_FILE"' not in script
     assert "source \"$ENV_FILE\"" not in script
+
+
+def test_release_packaging_script_uses_git_archive_and_requires_clean_tree():
+    script = read("deploy/package_release.ps1")
+
+    assert "git status --porcelain" in script
+    assert "Working tree is not clean" in script
+    assert "git archive --format=zip" in script
+    assert "NoMachine" in script
+
+
+def test_intranet_runbook_describes_nomachine_transfer_boundary():
+    doc = read("docs/intranet_deploy_fastapi_py36.md")
+
+    assert "NoMachine" in doc
+    assert "nx2" in doc
+    assert "外网 Windows 本地" in doc
+    assert "不要在外网本地执行" in doc
 
 
 def test_intranet_env_example_requires_mysql_and_logs_paths():

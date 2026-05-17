@@ -5,6 +5,7 @@ __pycache__/
 config/auth_tokens.json
 runtime/
 logs/
+release/
 venv_py36/
 .venv/
 goal/
