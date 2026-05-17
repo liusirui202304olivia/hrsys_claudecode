@@ -19,6 +19,7 @@ def read(relative_path):
 
 def test_deploy_scripts_use_intranet_production_base_path():
     expected_paths = [
+        "deploy/package_release.sh",
         "deploy/package_release.ps1",
         "deploy/hr-mcp.service",
         "deploy/start_hr_mcp_nohup.sh",
@@ -55,12 +56,15 @@ def test_nohup_script_points_service_to_base_env_without_sourcing_secrets():
 
 
 def test_release_packaging_script_uses_git_archive_and_requires_clean_tree():
-    script = read("deploy/package_release.ps1")
+    script = read("deploy/package_release.sh")
 
     assert "git status --porcelain" in script
     assert "Working tree is not clean" in script
     assert "git archive --format=zip" in script
     assert "NoMachine" in script
+    doc_section = read("docs/intranet_deploy_fastapi_py36.md").split("## 2. 拷贝代码", 1)[1].split("## 3.", 1)[0]
+    assert "bash ./deploy/package_release.sh" in doc_section
+    assert "反斜杠会被 Bash 当作转义字符" in doc_section
 
 
 def test_intranet_runbook_describes_nomachine_transfer_boundary():

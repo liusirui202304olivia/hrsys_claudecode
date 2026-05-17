@@ -87,12 +87,13 @@ git checkout <已验证commit>
 
 如果内网不能访问外网代码仓库，走 NoMachine 离线包方式。
 
-外网 Windows 本地先在 `D:\hr_for_claudecode` 执行：
+外网 Windows 本地使用 Git Bash，先在 `/d/hr_for_claudecode` 执行：
 
-```powershell
+```bash
+cd /d/hr_for_claudecode
 python -m pytest tests -q
 git status -sb
-powershell -ExecutionPolicy Bypass -File .\deploy\package_release.ps1
+bash ./deploy/package_release.sh
 ```
 
 脚本会生成：
@@ -100,6 +101,14 @@ powershell -ExecutionPolicy Bypass -File .\deploy\package_release.ps1
 ```text
 D:\hr_for_claudecode\release\hr_mcp_release_<commit>.zip
 ```
+
+如果你临时改用 Windows PowerShell，命令才是：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./deploy/package_release.ps1
+```
+
+注意不要在 Git Bash 里使用 `.\deploy\package_release.ps1`，反斜杠会被 Bash 当作转义字符。
 
 通过 NoMachine 连接 nx2，把这个 zip 传入内网，例如放到：
 

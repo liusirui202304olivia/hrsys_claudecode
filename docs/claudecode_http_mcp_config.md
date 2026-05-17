@@ -11,7 +11,7 @@ export HR_MCP_TOKEN=<当前用户自己的token>
 
 服务端实际读取 `/workspace/devops/env_prod/service/ai/hr_mcp/.env`。`HR_MCP_ENV_PATH` 只在服务启动脚本和 systemd unit 中使用，普通 Claude Code CLI 用户不需要配置它。
 
-如果外网本地不能访问内网服务地址，下面的 `claude mcp add` 和验收问题必须在 NoMachine/nx2 或内网 Claude Code CLI 环境执行。本地 Windows 只负责打包代码和传输 release zip。
+如果外网本地不能访问内网服务地址，下面的 `claude mcp add` 和验收问题必须在 NoMachine/nx2 或内网 Claude Code CLI 环境执行。本地 Git Bash 只负责执行 `bash ./deploy/package_release.sh` 打包代码和传输 release zip。
 
 ## 命令行添加
 
