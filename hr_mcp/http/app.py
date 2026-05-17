@@ -1,18 +1,21 @@
-﻿"""HTTP MCP 应用入口。
+"""FastAPI HTTP MCP 应用入口。
 
 该文件提供 `/healthz`、`/readyz`、`/mcp`、`/mcp/tools` 和内部审计查询接口。
-它负责把 Gateway header 解析为身份上下文，把 HTTP JSON 请求交给 MCP JSON-RPC handler，并把结果序列化为 HTTP 响应。
+它负责 HTTP JSON 编解码、Bearer token 鉴权、IP 白名单、限流、请求体大小限制和 FastAPI 路由绑定。
 本层不直接访问 SQL dump 或 MySQL，也不实现候选人筛选、字段白名单或招聘分析逻辑。
 """
 
-from __future__ import annotations
-
 import json
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+import time
+from ipaddress import ip_address, ip_network
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from urllib.parse import parse_qs, urlparse
 
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
 from hr_mcp.mcp.jsonrpc import JsonRpcError, JsonRpcHandler
+from hr_mcp.models.context import IdentityContext
 from hr_mcp.services.config_center import ConfigCenter
 from hr_mcp.services.identity_service import IdentityError, IdentityService
 from hr_mcp.services.runtime import RuntimeContainer, build_runtime
@@ -21,12 +24,15 @@ from hr_mcp.services.runtime import RuntimeContainer, build_runtime
 class HrMcpHttpApp:
     DEBUG_TOOL_ROLES = {"HR_ADMIN", "MCP_DEBUG"}
 
-    def __init__(self, runtime: RuntimeContainer, identity_service: IdentityService | None = None):
+    def __init__(self, runtime, identity_service=None):
+        # type: (RuntimeContainer, Optional[IdentityService]) -> None
         self.runtime = runtime
         self.identity_service = identity_service or IdentityService(runtime.config)
         self.jsonrpc = JsonRpcHandler(runtime.router)
+        self._rate_windows = {}  # type: Dict[str, Tuple[int, int]]
 
-    def handle_request(self, method: str, path: str, headers: dict[str, str] | None, body: bytes | str | None) -> tuple[int, dict[str, Any]]:
+    def handle_request(self, method, path, headers=None, body=None, client_ip=None):
+        # type: (str, str, Optional[Dict[str, str]], Optional[object], Optional[str]) -> Tuple[int, Dict[str, Any]]
         parsed = urlparse(path)
         route = parsed.path
         method = method.upper()
@@ -38,27 +44,40 @@ class HrMcpHttpApp:
             checks = self.runtime.ready_checks()
             status = 200 if all(checks.values()) else 503
             return status, {"status": "ready" if status == 200 else "not_ready", "checks": checks}
+        if self._body_too_large(body):
+            return self._http_failure(method, route, headers, client_ip, 413, "request_too_large", "Request body exceeds configured max size")
+        if not self._ip_allowed(headers, client_ip):
+            return self._http_failure(method, route, headers, client_ip, 403, "ip_forbidden", "Client IP is not in allowlist")
+
         if method == "GET" and route == "/mcp/tools":
-            identity_result = self._identity(headers)
+            identity_result = self._identity(headers, route, method, client_ip=client_ip)
             if isinstance(identity_result, tuple):
                 return identity_result
+            if self._rate_limited(identity_result):
+                return self._http_failure(method, route, headers, client_ip, 429, "rate_limited", "User exceeded rate limit", identity_result)
             if identity_result.role not in self.DEBUG_TOOL_ROLES:
-                return 403, {"error": "forbidden"}
+                return self._http_failure(method, route, headers, client_ip, 403, "forbidden", "Role cannot list tools", identity_result)
             return 200, {"tools": self.runtime.router.list_tools()}
+
         if method == "POST" and route == "/mcp":
-            identity_result = self._identity(headers)
-            if isinstance(identity_result, tuple):
-                return identity_result
             payload = self._json_body(body)
             if payload is None:
                 return 400, self._jsonrpc_error(None, JsonRpcError.PARSE_ERROR, "Invalid JSON body")
-            return 200, self.jsonrpc.handle(payload, identity_result)
-        if method == "POST" and route == "/internal/audit/query":
-            identity_result = self._identity(headers)
+            identity_result = self._identity(headers, route, method, payload, client_ip=client_ip)
             if isinstance(identity_result, tuple):
                 return identity_result
+            if self._rate_limited(identity_result):
+                return self._http_failure(method, route, headers, client_ip, 429, "rate_limited", "User exceeded rate limit", identity_result)
+            return 200, self.jsonrpc.handle(payload, identity_result)
+
+        if method == "POST" and route == "/internal/audit/query":
+            identity_result = self._identity(headers, route, method, client_ip=client_ip)
+            if isinstance(identity_result, tuple):
+                return identity_result
+            if self._rate_limited(identity_result):
+                return self._http_failure(method, route, headers, client_ip, 429, "rate_limited", "User exceeded rate limit", identity_result)
             if identity_result.role not in self.DEBUG_TOOL_ROLES:
-                return 403, {"error": "forbidden"}
+                return self._http_failure(method, route, headers, client_ip, 403, "forbidden", "Role cannot query audit records", identity_result)
             params = self._json_body(body) or {}
             query = parse_qs(parsed.query)
             try:
@@ -66,65 +85,176 @@ class HrMcpHttpApp:
             except (TypeError, ValueError):
                 return 400, {"error": "invalid_limit"}
             return 200, {"records": self.runtime.read_audit_records(limit=limit)}
+
         return 404, {"error": "not_found"}
 
-    def _identity(self, headers: dict[str, str]):
-        try:
-            return self.identity_service.from_headers(headers)
-        except IdentityError:
-            return 401, {"error": "unauthorized_gateway"}
+    def as_fastapi(self):
+        # type: () -> FastAPI
+        api = FastAPI(title="HR MCP API", version="0.1.0")
+        owner = self
 
-    def _json_body(self, body: bytes | str | None) -> dict[str, Any] | None:
+        @api.get("/healthz")
+        async def healthz():
+            status, payload = owner.handle_request("GET", "/healthz", {}, b"")
+            return JSONResponse(payload, status_code=status)
+
+        @api.get("/readyz")
+        async def readyz():
+            status, payload = owner.handle_request("GET", "/readyz", {}, b"")
+            return JSONResponse(payload, status_code=status)
+
+        @api.get("/mcp/tools")
+        async def tools(request: Request):
+            status, payload = owner.handle_request("GET", "/mcp/tools", dict(request.headers.items()), b"", owner._request_client_ip(request))
+            return JSONResponse(payload, status_code=status)
+
+        @api.post("/mcp")
+        async def mcp(request: Request):
+            body = await request.body()
+            status, payload = owner.handle_request("POST", "/mcp", dict(request.headers.items()), body, owner._request_client_ip(request))
+            return JSONResponse(payload, status_code=status)
+
+        @api.post("/internal/audit/query")
+        async def audit_query(request: Request):
+            body = await request.body()
+            status, payload = owner.handle_request(
+                "POST",
+                str(request.url.path) + ("?" + request.url.query if request.url.query else ""),
+                dict(request.headers.items()),
+                body,
+                owner._request_client_ip(request),
+            )
+            return JSONResponse(payload, status_code=status)
+
+        return api
+
+    def _identity(self, headers, route="/mcp", method="POST", payload=None, client_ip=None):
+        # type: (Dict[str, str], str, str, Optional[Dict[str, Any]], Optional[str]) -> object
+        try:
+            identity = self.identity_service.from_headers(headers)
+            access_reason = self._payload_access_reason(payload)
+            return self.identity_service.with_access_reason(identity, access_reason)
+        except IdentityError:
+            return self._http_failure(method, route, headers, client_ip, 401, "unauthorized", "Missing or invalid bearer token")
+
+    def _payload_access_reason(self, payload):
+        # type: (Optional[Dict[str, Any]]) -> Optional[str]
+        if not isinstance(payload, dict):
+            return None
+        params = payload.get("params") or {}
+        if not isinstance(params, dict):
+            return None
+        arguments = params.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            return None
+        value = arguments.get("access_reason")
+        return value if isinstance(value, str) and value.strip() else None
+
+    def _json_body(self, body):
+        # type: (Optional[object]) -> Optional[Dict[str, Any]]
         if body is None or body == b"" or body == "":
             return {}
         try:
             raw = body.decode("utf-8") if isinstance(body, bytes) else body
             data = json.loads(raw)
             return data if isinstance(data, dict) else None
-        except json.JSONDecodeError:
+        except (TypeError, ValueError):
             return None
 
-    def _jsonrpc_error(self, request_id: Any, code: int, message: str) -> dict[str, Any]:
+    def _jsonrpc_error(self, request_id, code, message):
+        # type: (Any, int, str) -> Dict[str, Any]
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
+    def _body_too_large(self, body):
+        # type: (Optional[object]) -> bool
+        if body is None:
+            return False
+        if isinstance(body, bytes):
+            size = len(body)
+        else:
+            size = len(str(body).encode("utf-8"))
+        return size > self.runtime.config.max_request_bytes
 
-def create_app(config: ConfigCenter | None = None) -> HrMcpHttpApp:
+    def _ip_allowed(self, headers, client_ip=None):
+        # type: (Dict[str, str], Optional[str]) -> bool
+        cidrs = self.runtime.config.allowed_ip_cidrs
+        if not cidrs:
+            return True
+        client_ip = self._client_ip(headers, client_ip)
+        try:
+            ip = ip_address(client_ip)
+            return any(ip in ip_network(cidr, strict=False) for cidr in cidrs)
+        except ValueError:
+            return False
+
+    def _client_ip(self, headers, client_ip=None):
+        # type: (Dict[str, str], Optional[str]) -> str
+        if client_ip:
+            return client_ip
+        normalized = {key.lower(): value for key, value in headers.items()}
+        forwarded = normalized.get("x-forwarded-for") or normalized.get("x-real-ip") or "127.0.0.1"
+        return forwarded.split(",", 1)[0].strip()
+
+    def _request_client_ip(self, request):
+        # type: (Request) -> Optional[str]
+        if request.client is None:
+            return None
+        return request.client.host
+
+    def _http_failure(self, method, route, headers, client_ip, status, error_type, error_message, identity=None):
+        # type: (str, str, Dict[str, str], Optional[str], int, str, str, Optional[IdentityContext]) -> Tuple[int, Dict[str, Any]]
+        audit_service = getattr(self.runtime.router, "audit_service", None)
+        if audit_service:
+            try:
+                audit_service.record_http_failure(
+                    route=route,
+                    method=method,
+                    status_code=status,
+                    error_type=error_type,
+                    error_message=error_message,
+                    identity=identity,
+                    request_id=self._header_value(headers, "x-request-id"),
+                    remote_addr=self._client_ip(headers, client_ip),
+                )
+            except Exception:
+                pass
+        return status, {"error": error_type}
+
+    def _header_value(self, headers, key):
+        # type: (Dict[str, str], str) -> Optional[str]
+        for header_name, value in headers.items():
+            if header_name.lower() == key:
+                return value
+        return None
+
+    def _rate_limited(self, identity):
+        # type: (IdentityContext) -> bool
+        limit = self.runtime.config.rate_limit_per_minute
+        if limit <= 0:
+            return False
+        key = str(identity.user_id or identity.user_name or "anonymous")
+        minute = int(time.time() // 60)
+        window_minute, count = self._rate_windows.get(key, (minute, 0))
+        if window_minute != minute:
+            window_minute, count = minute, 0
+        count += 1
+        self._rate_windows[key] = (window_minute, count)
+        return count > limit
+
+
+def create_app(config=None):
+    # type: (Optional[ConfigCenter]) -> HrMcpHttpApp
     runtime = build_runtime(config or ConfigCenter())
     return HrMcpHttpApp(runtime)
 
 
-class _RequestHandler(BaseHTTPRequestHandler):
-    server_version = "HrMcpHttp/0.1"
-
-    def do_GET(self) -> None:
-        self._dispatch()
-
-    def do_POST(self) -> None:
-        self._dispatch()
-
-    def log_message(self, format: str, *args: Any) -> None:
-        return
-
-    def _dispatch(self) -> None:
-        try:
-            length = int(self.headers.get("Content-Length", "0") or "0")
-        except ValueError:
-            length = 0
-        body = self.rfile.read(length) if length else b""
-        app: HrMcpHttpApp = self.server.app  # type: ignore[attr-defined]
-        status, payload = app.handle_request(self.command, self.path, dict(self.headers.items()), body)
-        response = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(response)))
-        self.end_headers()
-        self.wfile.write(response)
+def create_fastapi_app(config=None):
+    # type: (Optional[ConfigCenter]) -> FastAPI
+    return create_app(config).as_fastapi()
 
 
-def serve(config: ConfigCenter | None = None) -> None:
+def serve(config=None):
+    # type: (Optional[ConfigCenter]) -> None
+    import uvicorn
     config = config or ConfigCenter()
-    app = create_app(config)
-    server = ThreadingHTTPServer((config.host, config.port), _RequestHandler)
-    server.app = app  # type: ignore[attr-defined]
-    print(f"HR MCP/API listening on http://{config.host}:{config.port}")
-    server.serve_forever()
+    uvicorn.run(create_fastapi_app(config), host=config.host, port=config.port)

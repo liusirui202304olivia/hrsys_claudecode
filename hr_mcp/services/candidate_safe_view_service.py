@@ -5,6 +5,8 @@
 所有候选人明细输出都应通过该服务，而不是由工具或 repository 直接返回。
 """
 
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+
 from hr_mcp.models.context import IdentityContext
 from hr_mcp.security.field_policy import FieldPolicy
 from hr_mcp.services.permission_service import PermissionService
@@ -15,7 +17,7 @@ class CandidateSafeViewService:
         self.field_policy = field_policy
         self.permission_service = permission_service
 
-    def allowed_fields(self, table: str, requested_fields: list[str] | None, identity: IdentityContext) -> list[str]:
+    def allowed_fields(self, table: str, requested_fields: Optional[List[str]], identity: IdentityContext) -> List[str]:
         return self.field_policy.allowed_fields(
             table=table,
             requested_fields=requested_fields,
@@ -23,18 +25,18 @@ class CandidateSafeViewService:
             access_reason=identity.access_reason,
         )
 
-    def requested_privileged_fields(self, table: str, requested_fields: list[str] | None, identity: IdentityContext) -> bool:
+    def requested_privileged_fields(self, table: str, requested_fields: Optional[List[str]], identity: IdentityContext) -> bool:
         allowed = self.allowed_fields(table, requested_fields, identity)
         return self.field_policy.has_privileged_fields(table, allowed)
 
-    def project_record(self, table: str, record: dict, requested_fields: list[str] | None, identity: IdentityContext) -> dict:
+    def project_record(self, table: str, record: Dict[str, Any], requested_fields: Optional[List[str]], identity: IdentityContext) -> Dict[str, Any]:
         allowed = self.allowed_fields(table, requested_fields, identity)
         return self._project_with_allowed(record, allowed)
 
-    def project_records(self, table: str, records: list[dict], requested_fields: list[str] | None, identity: IdentityContext) -> list[dict]:
+    def project_records(self, table: str, records: List[Dict[str, Any]], requested_fields: Optional[List[str]], identity: IdentityContext) -> List[Dict[str, Any]]:
         allowed = self.allowed_fields(table, requested_fields, identity)
         scoped = self.permission_service.filter_candidate_records(records, identity) if table == "hr_candidate" else records
         return [self._project_with_allowed(row, allowed) for row in scoped]
 
-    def _project_with_allowed(self, record: dict, allowed: list[str]) -> dict:
+    def _project_with_allowed(self, record: Dict[str, Any], allowed: List[str]) -> Dict[str, Any]:
         return {field_name: record.get(field_name) for field_name in allowed if field_name in record}

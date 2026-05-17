@@ -6,17 +6,16 @@
 字段策略默认来自代码内置常量，也可从项目内 `config/field_policy.yml` 加载，避免配置文件和运行时策略漂移。
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 
 class FieldAccessError(ValueError):
     pass
 
 
-DEFAULT_VISIBLE_FIELDS: dict[str, set[str]] = {
+DEFAULT_VISIBLE_FIELDS: Dict[str, Set[str]] = {
     "hr_candidate": {
         "candidate_id", "status", "reject_stage", "hr_id", "name", "gender", "degree_first",
         "degree", "degree_start", "degree_end", "college", "major", "work_years",
@@ -36,7 +35,7 @@ DEFAULT_VISIBLE_FIELDS: dict[str, set[str]] = {
     "sys_org": {"name", "leader_id", "member_count"},
 }
 
-PRIVILEGED_VISIBLE_FIELDS: dict[str, set[str]] = {
+PRIVILEGED_VISIBLE_FIELDS: Dict[str, Set[str]] = {
     "hr_candidate": {"mobile", "email"},
     "sys_user": {"phone", "email", "username"},
 }
@@ -46,12 +45,12 @@ PRIVILEGED_ROLES = {"HR_ADMIN"}
 
 @dataclass
 class FieldPolicy:
-    default_fields: dict[str, set[str]] = field(default_factory=lambda: {k: set(v) for k, v in DEFAULT_VISIBLE_FIELDS.items()})
-    privileged_fields: dict[str, set[str]] = field(default_factory=lambda: {k: set(v) for k, v in PRIVILEGED_VISIBLE_FIELDS.items()})
-    privileged_roles: set[str] = field(default_factory=lambda: set(PRIVILEGED_ROLES))
+    default_fields: Dict[str, Set[str]] = field(default_factory=lambda: {k: set(v) for k, v in DEFAULT_VISIBLE_FIELDS.items()})
+    privileged_fields: Dict[str, Set[str]] = field(default_factory=lambda: {k: set(v) for k, v in PRIVILEGED_VISIBLE_FIELDS.items()})
+    privileged_roles: Set[str] = field(default_factory=lambda: set(PRIVILEGED_ROLES))
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "FieldPolicy":
+    def from_yaml(cls, path: Union[str, Path]) -> "FieldPolicy":
         path = Path(path)
         if not path.exists():
             return cls()
@@ -62,12 +61,12 @@ class FieldPolicy:
             privileged_roles=set(parsed.get("privileged_roles", [])),
         )
 
-    def allowed_fields(self, table: str, requested_fields: list[str] | tuple[str, ...] | None, role: str, access_reason: str | None) -> list[str]:
+    def allowed_fields(self, table: str, requested_fields: Optional[Union[List[str], Tuple[str, ...]]], role: str, access_reason: Optional[str]) -> List[str]:
         fields = list(requested_fields or sorted(self.default_fields.get(table, set())))
         allowed_default = self.default_fields.get(table, set())
         allowed_privileged = self.privileged_fields.get(table, set())
-        result: list[str] = []
-        denied: list[str] = []
+        result: List[str] = []
+        denied: List[str] = []
         for field_name in fields:
             if field_name in allowed_default:
                 result.append(field_name)
@@ -83,24 +82,24 @@ class FieldPolicy:
             raise FieldAccessError(f"Fields are not visible to agent: {table}.{', '.join(denied)}")
         return result
 
-    def default_field_list(self, table: str) -> list[str]:
+    def default_field_list(self, table: str) -> List[str]:
         return sorted(self.default_fields.get(table, set()))
 
-    def has_privileged_fields(self, table: str, fields: list[str] | tuple[str, ...] | None) -> bool:
+    def has_privileged_fields(self, table: str, fields: Optional[Union[List[str], Tuple[str, ...]]]) -> bool:
         if not fields:
             return False
         privileged = self.privileged_fields.get(table, set())
         return any(field_name in privileged for field_name in fields)
 
 
-def _parse_field_policy_yaml(text: str) -> dict[str, dict[str, list[str]] | list[str]]:
-    result: dict[str, dict[str, list[str]] | list[str]] = {
+def _parse_field_policy_yaml(text: str) -> Dict[str, object]:
+    result: Dict[str, object] = {
         "default_visible": {},
         "privileged_visible": {},
         "privileged_roles": [],
     }
-    section: str | None = None
-    current_table: str | None = None
+    section: Optional[str] = None
+    current_table: Optional[str] = None
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
         if line.startswith("\ufeff"):
@@ -132,7 +131,7 @@ def _parse_field_policy_yaml(text: str) -> dict[str, dict[str, list[str]] | list
     return result
 
 
-def _parse_inline_list(raw_value: str) -> list[str]:
+def _parse_inline_list(raw_value: str) -> List[str]:
     value = raw_value.strip()
     if not value:
         return []

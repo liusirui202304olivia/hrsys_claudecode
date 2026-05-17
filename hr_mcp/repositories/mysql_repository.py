@@ -5,9 +5,7 @@
 Repository 返回的记录仍需经过 safe view service 和 field policy 后才能暴露给 MCP 工具。
 """
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
 ALLOWED_CANDIDATE_FILTERS = {
@@ -26,7 +24,7 @@ class MySQLTalentRepository:
     SAFE_VIEW = "v_candidate_agent_safe"
     PRIVILEGED_VIEW = "v_candidate_agent_privileged"
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]):
         self.config = config
 
     def ready(self) -> bool:
@@ -47,7 +45,7 @@ class MySQLTalentRepository:
         except Exception:
             return False
 
-    def search_candidates(self, filters: dict[str, Any] | None, limit: int, include_privileged: bool = False) -> list[dict[str, Any]]:
+    def search_candidates(self, filters: Optional[Dict[str, Any]], limit: int, include_privileged: bool = False) -> List[Dict[str, Any]]:
         filters = filters or {}
         where, params = self._where(filters)
         view_name = self._view(include_privileged)
@@ -61,7 +59,7 @@ class MySQLTalentRepository:
         params.append(max(0, min(int(limit), 10_000)))
         return self._fetch_all(sql, params)
 
-    def get_candidates_by_ids(self, candidate_ids: list[int | str], include_privileged: bool = False) -> list[dict[str, Any]]:
+    def get_candidates_by_ids(self, candidate_ids: List[Union[int, str]], include_privileged: bool = False) -> List[Dict[str, Any]]:
         if not candidate_ids:
             return []
         placeholders = ",".join(["%s"] * len(candidate_ids))
@@ -73,22 +71,22 @@ class MySQLTalentRepository:
         """
         return self._fetch_all(sql, list(candidate_ids))
 
-    def count_candidates(self, filters: dict[str, Any] | None) -> int:
+    def count_candidates(self, filters: Optional[Dict[str, Any]]) -> int:
         return len(self.search_candidates(filters or {}, 10_000))
 
-    def position_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    def position_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return self._distribution("position_name", filters or {})
 
-    def status_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    def status_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return self._distribution("status", filters or {})
 
-    def source_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    def source_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return self._distribution("source_name", filters or {})
 
-    def _where(self, filters: dict[str, Any]) -> tuple[str, list[Any]]:
+    def _where(self, filters: Dict[str, Any]) -> Tuple[str, List[Any]]:
         self._validate_filters(filters)
-        where: list[str] = []
-        params: list[Any] = []
+        where: List[str] = []
+        params: List[Any] = []
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query:
             where.append("v.position_name LIKE %s")
@@ -111,19 +109,19 @@ class MySQLTalentRepository:
             params.extend([like_value, like_value, like_value])
         return ("WHERE " + " AND ".join(where) if where else ""), params
 
-    def _validate_filters(self, filters: dict[str, Any]) -> None:
+    def _validate_filters(self, filters: Dict[str, Any]) -> None:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
         if unknown:
             raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
 
-    def _distribution(self, field: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
-        counts: dict[str, int] = {}
+    def _distribution(self, field: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
+        counts: Dict[str, int] = {}
         for row in self.search_candidates(filters, 10_000):
             key = row.get(field) or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
         return [{field: key, "count": value} for key, value in counts.items()]
 
-    def _fetch_all(self, sql: str, params: list[Any]) -> list[dict[str, Any]]:
+    def _fetch_all(self, sql: str, params: List[Any]) -> List[Dict[str, Any]]:
         import pymysql
         connection = pymysql.connect(
             host=self.config["host"],

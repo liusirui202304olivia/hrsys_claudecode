@@ -29,14 +29,15 @@
 - [ ] 安全视图 SQL 不把联系方式放入默认视图。
 - [ ] 客户端配置不包含数据库账号、密码或连接串。
 
-## HTTP / Gateway
+## HTTP / Auth
 
 - [ ] `GET /healthz` 返回存活状态。
 - [ ] `GET /readyz` 返回数据源、审计存储状态，不依赖 `standard_markdown`。
 - [ ] `POST /mcp` 支持 `tools/list` 和 `tools/call`。
 - [ ] `GET /mcp/tools` 仅管理员或调试角色可用。
-- [ ] Gateway 注入 `X-Request-Id`、`X-Trace-Id`、`X-User-Id`、`X-User-Name`、`X-User-Role`、`X-Department-Id`、`X-Client-Id`、`X-Access-Reason`。
-- [ ] 生产环境配置 `HR_GATEWAY_SHARED_SECRET`，并确认直连伪造 Gateway header 会被拒绝。
+- [ ] `/mcp` 使用 `Authorization: Bearer <token>` 鉴权。
+- [ ] 客户端伪造 `X-User-Role`、`X-User-Id`、`X-Department-Id` 不会覆盖服务端 token 身份。
+- [ ] IP 白名单、限流和请求体大小限制生效。
 
 ## MCP Tools
 

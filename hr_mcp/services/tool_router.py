@@ -5,9 +5,7 @@
 对于保存推荐结果等有写入副作用的工具，路由层会先执行工具级角色授权。
 """
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from hr_mcp.models.context import IdentityContext
 from hr_mcp.services.tool_registry import ToolRegistry
@@ -38,10 +36,10 @@ class ToolRouter:
         self.result_store = result_store
         self.audit_service = audit_service
 
-    def list_tools(self) -> list[dict[str, Any]]:
+    def list_tools(self) -> List[Dict[str, Any]]:
         return self.registry.list_tools()
 
-    def call_tool(self, tool_name: str, arguments: dict[str, Any] | None, identity: IdentityContext) -> dict[str, Any]:
+    def call_tool(self, tool_name: str, arguments: Optional[Dict[str, Any]], identity: IdentityContext) -> Dict[str, Any]:
         if arguments is None:
             arguments = {}
         if not isinstance(arguments, dict):
@@ -95,7 +93,7 @@ class ToolRouter:
         self._audit(tool_name, arguments, result, identity)
         return result
 
-    def record_failed_call(self, tool_name: str, arguments: dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
+    def record_failed_call(self, tool_name: str, arguments: Dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
         if not self.audit_service:
             return
         fields = arguments.get("return_fields") if isinstance(arguments, dict) else []
@@ -112,7 +110,7 @@ class ToolRouter:
         if identity.role not in self.SAVE_ALLOWED_ROLES:
             raise PermissionError("save_screening_result requires HR_ADMIN or RECRUITER role")
 
-    def _validate_arguments(self, tool_name: str, arguments: dict[str, Any]) -> None:
+    def _validate_arguments(self, tool_name: str, arguments: Dict[str, Any]) -> None:
         if tool_name == "search_candidate_safe_profiles":
             self._validate_optional_dict(arguments, "filters")
             self._validate_optional_string_list(arguments, "return_fields")
@@ -145,15 +143,15 @@ class ToolRouter:
                 if not isinstance(candidate.get("risk_points"), list) or not all(isinstance(item, str) for item in candidate.get("risk_points")):
                     raise InvalidToolArgumentsError(f"recommended_candidates[{index}].risk_points must be an array of strings")
 
-    def _validate_optional_dict(self, arguments: dict[str, Any], key: str) -> None:
+    def _validate_optional_dict(self, arguments: Dict[str, Any], key: str) -> None:
         if key in arguments and not isinstance(arguments[key], dict):
             raise InvalidToolArgumentsError(f"{key} must be an object")
 
-    def _validate_optional_string_list(self, arguments: dict[str, Any], key: str) -> None:
+    def _validate_optional_string_list(self, arguments: Dict[str, Any], key: str) -> None:
         if key in arguments and not (isinstance(arguments[key], list) and all(isinstance(item, str) for item in arguments[key])):
             raise InvalidToolArgumentsError(f"{key} must be an array of strings")
 
-    def _audit(self, tool_name: str, arguments: dict[str, Any], result: dict[str, Any], identity: IdentityContext) -> None:
+    def _audit(self, tool_name: str, arguments: Dict[str, Any], result: Dict[str, Any], identity: IdentityContext) -> None:
         if not self.audit_service:
             return
         candidate_ids = self._candidate_ids(result)
@@ -167,9 +165,9 @@ class ToolRouter:
             fields=fields,
         )
 
-    def _candidate_ids(self, result: dict[str, Any]) -> list[Any]:
+    def _candidate_ids(self, result: Dict[str, Any]) -> List[Any]:
         candidates = result.get("candidates") or result.get("saved", {}).get("recommended_candidates") or []
-        ids: list[Any] = []
+        ids: List[Any] = []
         for candidate in candidates:
             if isinstance(candidate, dict):
                 candidate_id = candidate.get("candidate_id") or candidate.get("id")
@@ -177,7 +175,7 @@ class ToolRouter:
                     ids.append(candidate_id)
         return ids
 
-    def _summary(self, result: dict[str, Any]) -> str:
+    def _summary(self, result: Dict[str, Any]) -> str:
         if "candidates" in result:
             return f"returned {len(result.get('candidates') or [])} candidates"
         if "facts" in result:

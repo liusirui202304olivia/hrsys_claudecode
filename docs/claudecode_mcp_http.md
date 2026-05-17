@@ -22,7 +22,7 @@ python -m hr_mcp
 HR_MCP_HOST=127.0.0.1
 HR_MCP_PORT=8765
 HR_DATA_BACKEND=dump
-HR_GATEWAY_SHARED_SECRET=change-me-outside-git
+HR_AUTH_TOKENS_PATH=config/auth_tokens.json
 ```
 
 P0 默认使用 SQL dump 验证链路：`hr_data_sample/devops_hr_user_data_0508_1.sql`。接内网 MySQL 时由服务端 `.env` 配置数据库连接，Claude Code CLI 不保存数据库账号和密码。
@@ -139,10 +139,9 @@ skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘汇
 }
 ```
 
-高权限联系方式访问必须由 Gateway 加入：
+高权限联系方式访问必须带访问理由：
 
 ```text
-X-User-Role: HR_ADMIN
 X-Access-Reason: 联系候选人安排面试
 ```
 
@@ -155,15 +154,18 @@ X-Access-Reason: 联系候选人安排面试
 ```json
 {
   "mcpServers": {
-    "hr-mcp-p0": {
-      "transport": "http",
-      "url": "https://<gateway-host>/mcp/hr/p0"
+    "hr-mcp": {
+      "type": "http",
+      "url": "${HR_MCP_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HR_MCP_TOKEN}"
+      }
     }
   }
 }
 ```
 
-实际身份 header 由 Gateway 基于 SSO 会话注入；生产环境还应由 Gateway 注入 `X-Gateway-Secret`，HR MCP 服务端用 `HR_GATEWAY_SHARED_SECRET` 校验。客户端配置中不要出现数据库连接串、数据库用户名或数据库密码。
+当前无 API Gateway。身份由 HR MCP 服务端根据 Bearer token 映射，客户端配置中不要出现数据库连接串、数据库用户名或数据库密码。测试 token 仅用于内网联调，正式上线前应替换为飞书 SSO 或公司统一用户接口。
 
 ## P0 验收问题
 

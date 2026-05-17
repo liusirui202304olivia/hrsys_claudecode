@@ -5,12 +5,10 @@
 该层会读取原始字段，但不会直接决定 Agent 可见字段；安全投影由服务层完成。
 """
 
-from __future__ import annotations
-
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
 ALLOWED_CANDIDATE_FILTERS = {
@@ -26,34 +24,34 @@ ALLOWED_CANDIDATE_FILTERS = {
 
 
 class DumpTalentRepository:
-    def __init__(self, dump_path: str | Path):
+    def __init__(self, dump_path: Union[str, Path]):
         self.dump_path = Path(dump_path)
-        self._columns: dict[str, list[str]] | None = None
-        self._tables: dict[str, list[dict[str, Any]]] | None = None
+        self._columns: Optional[Dict[str, List[str]]] = None
+        self._tables: Optional[Dict[str, List[Dict[str, Any]]]] = None
 
     def ready(self) -> bool:
         return self.dump_path.exists()
 
-    def table(self, table_name: str) -> list[dict[str, Any]]:
+    def table(self, table_name: str) -> List[Dict[str, Any]]:
         self._ensure_loaded()
         assert self._tables is not None
         return self._tables.get(table_name, [])
 
-    def search_candidates(self, filters: dict[str, Any] | None, limit: int, include_privileged: bool = False) -> list[dict[str, Any]]:
+    def search_candidates(self, filters: Optional[Dict[str, Any]], limit: int, include_privileged: bool = False) -> List[Dict[str, Any]]:
         filters = filters or {}
         self._validate_filters(filters)
         rows = [row for row in self._joined_candidates() if self._candidate_matches(row, filters)]
         return rows[: max(0, min(int(limit), 10_000))]
 
-    def get_candidates_by_ids(self, candidate_ids: list[int | str], include_privileged: bool = False) -> list[dict[str, Any]]:
+    def get_candidates_by_ids(self, candidate_ids: List[Union[int, str]], include_privileged: bool = False) -> List[Dict[str, Any]]:
         ids = {str(candidate_id) for candidate_id in candidate_ids}
         return [row for row in self._joined_candidates() if str(row.get("id")) in ids or str(row.get("candidate_id")) in ids]
 
-    def count_candidates(self, filters: dict[str, Any] | None) -> int:
+    def count_candidates(self, filters: Optional[Dict[str, Any]]) -> int:
         return len(self.search_candidates(filters or {}, 10_000_000))
 
-    def position_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
-        counts: dict[str, int] = {}
+    def position_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        counts: Dict[str, int] = {}
         for row in self.search_candidates(filters or {}, 10_000_000):
             key = row.get("position_name") or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
@@ -62,8 +60,8 @@ class DumpTalentRepository:
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
 
-    def status_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
-        counts: dict[str, int] = {}
+    def status_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        counts: Dict[str, int] = {}
         for row in self.search_candidates(filters or {}, 10_000_000):
             key = row.get("status") or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
@@ -72,8 +70,8 @@ class DumpTalentRepository:
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
 
-    def source_distribution(self, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
-        counts: dict[str, int] = {}
+    def source_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        counts: Dict[str, int] = {}
         for row in self.search_candidates(filters or {}, 10_000_000):
             key = row.get("source_name") or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
@@ -82,7 +80,7 @@ class DumpTalentRepository:
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
 
-    def _validate_filters(self, filters: dict[str, Any]) -> None:
+    def _validate_filters(self, filters: Dict[str, Any]) -> None:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
         if unknown:
             raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
@@ -97,11 +95,11 @@ class DumpTalentRepository:
             rows = self._iter_insert_rows(text, table_name)
             self._tables[table_name] = [dict(zip(columns, row)) for row in rows]
 
-    def _parse_columns(self, text: str) -> dict[str, list[str]]:
-        result: dict[str, list[str]] = {}
+    def _parse_columns(self, text: str) -> Dict[str, List[str]]:
+        result: Dict[str, List[str]] = {}
         for match in re.finditer(r"CREATE TABLE `([^`]+)` \((.*?)\) ENGINE=", text, re.S):
             table_name = match.group(1)
-            columns: list[str] = []
+            columns: List[str] = []
             for line in match.group(2).splitlines():
                 stripped = line.strip()
                 if stripped.startswith("`"):
@@ -109,8 +107,8 @@ class DumpTalentRepository:
             result[table_name] = columns
         return result
 
-    def _iter_insert_rows(self, text: str, table_name: str) -> list[list[Any]]:
-        rows: list[list[Any]] = []
+    def _iter_insert_rows(self, text: str, table_name: str) -> List[List[Any]]:
+        rows: List[List[Any]] = []
         pattern = re.compile(r"INSERT INTO `" + re.escape(table_name) + r"` VALUES")
         for match in pattern.finditer(text):
             i = match.end()
@@ -118,7 +116,7 @@ class DumpTalentRepository:
             in_string = False
             escaped = False
             field = ""
-            row: list[str] = []
+            row: List[str] = []
             while i < len(text):
                 char = text[i]
                 if in_string:
@@ -167,11 +165,11 @@ class DumpTalentRepository:
             return int(value)
         return value
 
-    def _joined_candidates(self) -> list[dict[str, Any]]:
+    def _joined_candidates(self) -> List[Dict[str, Any]]:
         positions = {row.get("id"): row for row in self.table("hr_position")}
         sources = {row.get("id"): row for row in self.table("hr_source")}
         interviewer_ids = self._interviewer_ids_by_candidate()
-        joined: list[dict[str, Any]] = []
+        joined: List[Dict[str, Any]] = []
         for candidate in self.table("hr_candidate"):
             row = dict(candidate)
             position = positions.get(candidate.get("position_id"), {})
@@ -187,8 +185,8 @@ class DumpTalentRepository:
             joined.append(row)
         return joined
 
-    def _interviewer_ids_by_candidate(self) -> dict[Any, list[Any]]:
-        result: dict[Any, set[Any]] = {}
+    def _interviewer_ids_by_candidate(self) -> Dict[Any, List[Any]]:
+        result: Dict[Any, Set[Any]] = {}
         interview_candidate = {interview.get("id"): interview.get("candidate_id") for interview in self.table("hr_interview")}
         for evaluation in self.table("hr_interview_evaluate"):
             candidate_id = interview_candidate.get(evaluation.get("interview_id"))
@@ -204,7 +202,7 @@ class DumpTalentRepository:
             result.setdefault(candidate_id, set()).add(interviewer_id)
         return {candidate_id: sorted(interviewers) for candidate_id, interviewers in result.items()}
 
-    def _candidate_matches(self, row: dict[str, Any], filters: dict[str, Any]) -> bool:
+    def _candidate_matches(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query and str(position_query) not in str(row.get("position_name") or ""):
             return False
@@ -226,7 +224,7 @@ class DumpTalentRepository:
                 return False
         return True
 
-    def _search_text(self, row: dict[str, Any]) -> str:
+    def _search_text(self, row: Dict[str, Any]) -> str:
         fields = [
             row.get("name"), row.get("college"), row.get("major"), row.get("position_name"),
             row.get("experiences"), row.get("project_experiences"), row.get("skills"),

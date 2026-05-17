@@ -1,12 +1,14 @@
-﻿"""HTTP MCP 应用测试。
+"""HTTP MCP 应用测试。
 
-该文件通过内存方式调用 HTTP app，验证健康检查、就绪检查、MCP tools/list、tools/call 和调试工具清单权限。
-它还模拟 Gateway header，确认高权限字段访问、READONLY 明细限制和 Gateway shared secret 防伪逻辑生效。
+该文件通过内存方式调用 HTTP app，验证健康检查、就绪检查、HTTP-MCP JSON-RPC、
+Bearer token 鉴权、IP 白名单、限流、请求体大小限制和调试接口权限。
 测试避免真实网络依赖，但覆盖 HTTP 层到安全数据服务层的主要请求路径。
 """
 
 import json
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from hr_mcp.http.app import create_app
 from hr_mcp.services.config_center import ConfigCenter
@@ -56,22 +58,72 @@ INSERT INTO `hr_source` VALUES (10,'历史导入','其他/历史导入');
 '''
 
 
-def make_project(tmp_path: Path) -> Path:
+def make_project(tmp_path: Path, env_text: str = "") -> Path:
     dump_dir = tmp_path / "hr_data_sample"
     standard_dir = tmp_path / "standard_markdown"
+    config_dir = tmp_path / "config"
     dump_dir.mkdir(parents=True)
     standard_dir.mkdir(parents=True)
+    config_dir.mkdir(parents=True)
     (dump_dir / "devops_hr_user_data_0508_1.sql").write_text(SAMPLE_DUMP, encoding="utf-8")
     (standard_dir / "chip.md").write_text("# 芯片建模工程师筛选标准\n- C++\n- gem5", encoding="utf-8")
+    (config_dir / "auth_tokens.json").write_text(
+        json.dumps({
+            "tokens": {
+                "admin-token": {"user_id": 1, "user_name": "Admin", "role": "HR_ADMIN", "department_id": 7},
+                "recruiter-token": {"user_id": 2, "user_name": "Recruiter", "role": "RECRUITER", "department_id": 7},
+                "viewer-token": {"user_id": 3, "user_name": "Viewer", "role": "READONLY_VIEWER", "department_id": 9},
+            }
+        }),
+        encoding="utf-8",
+    )
+    if env_text:
+        (tmp_path / ".env").write_text(env_text, encoding="utf-8")
     return tmp_path
 
 
+def make_app(tmp_path: Path, env_text: str = ""):
+    project_root = make_project(tmp_path, env_text)
+    return create_app(ConfigCenter(project_root=project_root))
+
+
+def auth(token: str, extra=None):
+    headers = {"Authorization": "Bearer " + token, "X-Forwarded-For": "127.0.0.1"}
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def rpc_body(payload):
+    return json.dumps(payload).encode("utf-8")
+
+
+def tools_list_payload():
+    return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+
+
+def search_payload(return_fields=None):
+    return {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "search_candidate_safe_profiles",
+            "arguments": {
+                "filters": {"position_query": "芯片建模"},
+                "return_fields": return_fields or ["candidate_id", "name"],
+                "limit": 5,
+            },
+        },
+    }
+
+
 def test_healthz_readyz_and_admin_tools_endpoint(tmp_path: Path):
-    app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
+    app = make_app(tmp_path)
 
     assert app.handle_request("GET", "/healthz", {}, b"")[0] == 200
     ready_status, ready_body = app.handle_request("GET", "/readyz", {}, b"")
-    tools_status, tools_body = app.handle_request("GET", "/mcp/tools", {"X-User-Role": "HR_ADMIN"}, b"")
+    tools_status, tools_body = app.handle_request("GET", "/mcp/tools", auth("admin-token"), b"")
 
     assert ready_status == 200
     assert ready_body["checks"]["database"] is True
@@ -80,25 +132,49 @@ def test_healthz_readyz_and_admin_tools_endpoint(tmp_path: Path):
     assert len(tools_body["tools"]) == 4
 
 
-def test_mcp_tools_list_and_facts_call(tmp_path: Path):
-    app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
+def test_fastapi_routes_delegate_to_same_http_mcp_logic(tmp_path: Path):
+    app = make_app(tmp_path)
+    client = TestClient(app.as_fastapi())
 
-    list_status, list_body = app.handle_request(
-        "POST",
+    health = client.get("/healthz")
+    response = client.post(
         "/mcp",
-        {"X-User-Role": "HR_ADMIN"},
-        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8"),
+        headers={"Authorization": "Bearer admin-token"},
+        json=tools_list_payload(),
     )
+
+    assert health.status_code == 200
+    assert health.json()["status"] == "ok"
+    assert response.status_code == 200
+    assert response.json()["result"]["tools"][0]["name"] == "search_candidate_safe_profiles"
+
+
+def test_mcp_requires_valid_bearer_token(tmp_path: Path):
+    app = make_app(tmp_path)
+
+    missing_status, missing_body = app.handle_request("POST", "/mcp", {}, rpc_body(tools_list_payload()))
+    bad_status, bad_body = app.handle_request("POST", "/mcp", auth("bad-token"), rpc_body(tools_list_payload()))
+
+    assert missing_status == 401
+    assert missing_body["error"] == "unauthorized"
+    assert bad_status == 401
+    assert bad_body["error"] == "unauthorized"
+
+
+def test_mcp_tools_list_and_facts_call(tmp_path: Path):
+    app = make_app(tmp_path)
+
+    list_status, list_body = app.handle_request("POST", "/mcp", auth("admin-token"), rpc_body(tools_list_payload()))
     call_status, call_body = app.handle_request(
         "POST",
         "/mcp",
-        {"X-User-Role": "HR_ADMIN"},
-        json.dumps({
+        auth("admin-token"),
+        rpc_body({
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
             "params": {"name": "query_talent_pool_facts", "arguments": {"metrics": ["count"], "group_by": ["position_name"]}},
-        }).encode("utf-8"),
+        }),
     )
 
     assert list_status == 200
@@ -113,33 +189,16 @@ def test_mcp_tools_list_and_facts_call(tmp_path: Path):
 
 
 def test_search_result_candidate_id_can_be_reused_to_save_screening_result(tmp_path: Path):
-    app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
+    app = make_app(tmp_path)
 
-    search_status, search_body = app.handle_request(
-        "POST",
-        "/mcp",
-        {"X-User-Role": "HR_ADMIN"},
-        json.dumps({
-            "jsonrpc": "2.0",
-            "id": 11,
-            "method": "tools/call",
-            "params": {
-                "name": "search_candidate_safe_profiles",
-                "arguments": {
-                    "filters": {"position_query": "芯片建模"},
-                    "return_fields": ["candidate_id", "name"],
-                    "limit": 5,
-                },
-            },
-        }).encode("utf-8"),
-    )
+    search_status, search_body = app.handle_request("POST", "/mcp", auth("admin-token"), rpc_body(search_payload()))
     candidate_id = search_body["result"]["candidates"][0]["candidate_id"]
 
     save_status, save_body = app.handle_request(
         "POST",
         "/mcp",
-        {"X-User-Role": "HR_ADMIN"},
-        json.dumps({
+        auth("admin-token"),
+        rpc_body({
             "jsonrpc": "2.0",
             "id": 12,
             "method": "tools/call",
@@ -155,7 +214,7 @@ def test_search_result_candidate_id_can_be_reused_to_save_screening_result(tmp_p
                     }],
                 },
             },
-        }).encode("utf-8"),
+        }),
     )
 
     assert search_status == 200
@@ -164,27 +223,20 @@ def test_search_result_candidate_id_can_be_reused_to_save_screening_result(tmp_p
     assert save_body["result"]["saved"]["recommended_candidates"][0]["candidate_id"] == 1
 
 
-def test_gateway_headers_control_privileged_candidate_fields(tmp_path: Path):
-    app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
-    payload = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "tools/call",
-        "params": {
-            "name": "search_candidate_safe_profiles",
-            "arguments": {
-                "filters": {"position_query": "芯片建模"},
-                "return_fields": ["name", "gender", "proposed_join_date", "mobile"],
-                "limit": 5,
-            },
-        },
-    }).encode("utf-8")
+def test_bearer_identity_controls_privileged_candidate_fields_and_ignores_spoofed_role(tmp_path: Path):
+    app = make_app(tmp_path)
+    payload = rpc_body(search_payload(["name", "gender", "proposed_join_date", "mobile"]))
 
-    blocked_status, blocked_body = app.handle_request("POST", "/mcp", {"X-User-Role": "RECRUITER"}, payload)
+    blocked_status, blocked_body = app.handle_request(
+        "POST",
+        "/mcp",
+        auth("recruiter-token", {"X-User-Role": "HR_ADMIN", "X-Access-Reason": "contact candidate"}),
+        payload,
+    )
     allowed_status, allowed_body = app.handle_request(
         "POST",
         "/mcp",
-        {"X-User-Role": "HR_ADMIN", "X-Access-Reason": "联系候选人"},
+        auth("admin-token", {"X-Access-Reason": "contact candidate"}),
         payload,
     )
 
@@ -199,26 +251,43 @@ def test_gateway_headers_control_privileged_candidate_fields(tmp_path: Path):
 
 
 def test_non_admin_tools_endpoint_is_forbidden(tmp_path: Path):
-    app = create_app(ConfigCenter(project_root=make_project(tmp_path)))
+    app = make_app(tmp_path)
 
-    status, body = app.handle_request("GET", "/mcp/tools", {"X-User-Role": "READONLY_VIEWER"}, b"")
+    status, body = app.handle_request("GET", "/mcp/tools", auth("viewer-token"), b"")
 
     assert status == 403
     assert body["error"] == "forbidden"
 
 
-def test_mcp_rejects_untrusted_gateway_headers_when_secret_configured(tmp_path: Path):
-    project_root = make_project(tmp_path)
-    env_file = project_root / ".env"
-    env_file.write_text("HR_GATEWAY_SHARED_SECRET=s3cr3t\n", encoding="utf-8")
-    app = create_app(ConfigCenter(project_root=project_root, env_path=env_file))
+def test_ip_allowlist_blocks_non_internal_clients(tmp_path: Path):
+    app = make_app(tmp_path, "HR_ALLOWED_IP_CIDRS=127.0.0.1/32\n")
 
     status, body = app.handle_request(
         "POST",
         "/mcp",
-        {"X-User-Role": "HR_ADMIN", "X-Access-Reason": "联系候选人"},
-        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode("utf-8"),
+        auth("admin-token", {"X-Forwarded-For": "10.1.2.3"}),
+        rpc_body(tools_list_payload()),
     )
 
-    assert status == 401
-    assert body["error"] == "unauthorized_gateway"
+    assert status == 403
+    assert body["error"] == "ip_forbidden"
+
+
+def test_rate_limit_blocks_repeated_calls_per_user(tmp_path: Path):
+    app = make_app(tmp_path, "HR_RATE_LIMIT_PER_MINUTE=1\n")
+
+    first_status, _ = app.handle_request("POST", "/mcp", auth("admin-token"), rpc_body(tools_list_payload()))
+    second_status, second_body = app.handle_request("POST", "/mcp", auth("admin-token"), rpc_body(tools_list_payload()))
+
+    assert first_status == 200
+    assert second_status == 429
+    assert second_body["error"] == "rate_limited"
+
+
+def test_request_body_size_limit_blocks_large_payload(tmp_path: Path):
+    app = make_app(tmp_path, "HR_MAX_REQUEST_BYTES=20\n")
+
+    status, body = app.handle_request("POST", "/mcp", auth("admin-token"), rpc_body(tools_list_payload()))
+
+    assert status == 413
+    assert body["error"] == "request_too_large"

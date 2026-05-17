@@ -2,7 +2,11 @@
 __pycache__/
 *.pyc
 .env
+config/auth_tokens.json
 runtime/
+logs/
+venv_py36/
+.venv/
 goal/
 hr_data_sample/
 standard_markdown/

@@ -5,9 +5,7 @@
 协议边界在这里终止；候选人权限、字段策略、事实查询和结果保存都由安全数据服务层完成。
 """
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from hr_mcp.models.context import IdentityContext
 from hr_mcp.security.field_policy import FieldAccessError
@@ -31,7 +29,7 @@ class JsonRpcHandler:
     def __init__(self, router):
         self.router = router
 
-    def handle(self, payload: dict[str, Any], identity: IdentityContext) -> dict[str, Any]:
+    def handle(self, payload: Dict[str, Any], identity: IdentityContext) -> Dict[str, Any]:
         request_id = payload.get("id") if isinstance(payload, dict) else None
         try:
             if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
@@ -60,7 +58,7 @@ class JsonRpcHandler:
         except Exception as exc:  # pragma: no cover - defensive protocol boundary
             return self._error(request_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
-    def _handle_tool_call(self, params: Any, identity: IdentityContext) -> dict[str, Any]:
+    def _handle_tool_call(self, params: Any, identity: IdentityContext) -> Dict[str, Any]:
         if not isinstance(params, dict):
             raise InvalidParamsError("tools/call params must be an object")
         tool_name = params.get("name")
@@ -77,10 +75,10 @@ class JsonRpcHandler:
             raise exc
         return self.router.call_tool(tool_name, arguments, identity)
 
-    def _error(self, request_id: Any, code: int, message: str) -> dict[str, Any]:
+    def _error(self, request_id: Any, code: int, message: str) -> Dict[str, Any]:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
-    def _record_failed_tool_call(self, tool_name: str, arguments: dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
+    def _record_failed_tool_call(self, tool_name: str, arguments: Dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
         recorder = getattr(self.router, "record_failed_call", None)
         if recorder:
             recorder(tool_name, arguments, identity, exc)

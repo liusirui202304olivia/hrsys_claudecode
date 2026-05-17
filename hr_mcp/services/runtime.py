@@ -5,12 +5,10 @@
 本文件不装配岗位标准读取、候选人推荐、招聘分析或报告生成等 Agent 业务推理能力。
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from hr_mcp.repositories.dump_repository import DumpTalentRepository
 from hr_mcp.repositories.mysql_repository import MySQLTalentRepository
@@ -32,17 +30,17 @@ class RuntimeContainer:
     repository: Any
     router: ToolRouter
 
-    def ready_checks(self) -> dict[str, bool]:
+    def ready_checks(self) -> Dict[str, bool]:
         return {
             "database": bool(self.repository.ready()),
             "audit_store": self._path_available(self.config.audit_path.parent),
         }
 
-    def read_audit_records(self, limit: int = 100) -> list[dict[str, Any]]:
+    def read_audit_records(self, limit: int = 100) -> List[Dict[str, Any]]:
         path = self.config.audit_path
         if not path.exists():
             return []
-        records: list[dict[str, Any]] = []
+        records: List[Dict[str, Any]] = []
         for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
             if line.strip():
                 records.append(json.loads(line))
@@ -56,7 +54,7 @@ class RuntimeContainer:
             return False
 
 
-def build_runtime(config: ConfigCenter | None = None) -> RuntimeContainer:
+def build_runtime(config: Optional[ConfigCenter] = None) -> RuntimeContainer:
     config = config or ConfigCenter()
     repository = _build_repository(config)
     field_policy = FieldPolicy.from_yaml(config.field_policy_path)

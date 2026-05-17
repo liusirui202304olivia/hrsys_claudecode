@@ -1,0 +1,22 @@
+{
+  "tokens": {
+    "replace-admin-token": {
+      "user_id": 1,
+      "user_name": "HR Admin",
+      "role": "HR_ADMIN",
+      "department_id": 1
+    },
+    "replace-recruiter-token": {
+      "user_id": 2,
+      "user_name": "Recruiter",
+      "role": "RECRUITER",
+      "department_id": 1
+    },
+    "replace-viewer-token": {
+      "user_id": 3,
+      "user_name": "Readonly Viewer",
+      "role": "READONLY_VIEWER",
+      "department_id": 1
+    }
+  }
+}

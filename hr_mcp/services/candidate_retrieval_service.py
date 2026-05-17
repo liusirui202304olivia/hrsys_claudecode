@@ -5,6 +5,8 @@
 该服务是 Agent 获取候选人明细的主要入口，不能绕过字段白名单或行级权限。
 """
 
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+
 from hr_mcp.models.context import IdentityContext
 from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
 
@@ -18,13 +20,13 @@ class CandidateRetrievalService:
         self.repository = repository
         self.safe_view_service = safe_view_service
 
-    def search_safe_profiles(self, filters: dict, return_fields: list[str] | None, limit: int, identity: IdentityContext) -> list[dict]:
+    def search_safe_profiles(self, filters: Dict[str, Any], return_fields: Optional[List[str]], limit: int, identity: IdentityContext) -> List[Dict[str, Any]]:
         effective_limit = max(0, min(int(limit or self.DEFAULT_LIMIT), self.MAX_SEARCH_LIMIT))
         include_privileged = self.safe_view_service.requested_privileged_fields("hr_candidate", return_fields, identity)
         records = self.repository.search_candidates(filters or {}, effective_limit, include_privileged=include_privileged)
         return self.safe_view_service.project_records("hr_candidate", records, return_fields, identity)
 
-    def get_safe_detail_batch(self, candidate_ids: list[int | str], return_fields: list[str] | None, identity: IdentityContext) -> dict:
+    def get_safe_detail_batch(self, candidate_ids: List[Union[int, str]], return_fields: Optional[List[str]], identity: IdentityContext) -> Dict[str, Any]:
         requested = list(candidate_ids or [])[: self.MAX_DETAIL_BATCH]
         include_privileged = self.safe_view_service.requested_privileged_fields("hr_candidate", return_fields, identity)
         records = self.repository.get_candidates_by_ids(requested, include_privileged=include_privileged)

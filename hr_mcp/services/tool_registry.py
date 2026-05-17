@@ -5,13 +5,11 @@
 候选人 filter schema 在这里收紧为白名单字段，防止工具调用层传入自由条件或未知参数。
 """
 
-from __future__ import annotations
-
 from copy import deepcopy
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
-CANDIDATE_FILTER_SCHEMA: dict[str, Any] = {
+CANDIDATE_FILTER_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
@@ -28,7 +26,7 @@ CANDIDATE_FILTER_SCHEMA: dict[str, Any] = {
 
 
 class ToolRegistry:
-    TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         {
             "name": "search_candidate_safe_profiles",
             "description": "Search candidates and return field-policy-filtered safe profiles.",
@@ -95,7 +93,7 @@ class ToolRegistry:
         },
     ]
 
-    def list_tools(self) -> list[dict[str, Any]]:
+    def list_tools(self) -> List[Dict[str, Any]]:
         return deepcopy(self.TOOL_DEFINITIONS)
 
     def has_tool(self, tool_name: str) -> bool:

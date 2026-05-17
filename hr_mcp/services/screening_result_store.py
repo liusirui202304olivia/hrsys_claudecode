@@ -5,12 +5,10 @@
 工具级授权由 ToolRouter 控制；本服务只保存 Agent 已经生成的推荐结果，不生成推荐理由或风险点。
 """
 
-from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from hr_mcp.models.context import IdentityContext
 
@@ -19,16 +17,16 @@ SENSITIVE_RESULT_FIELDS = {"mobile", "email", "phone", "username"}
 
 
 class ScreeningResultStore:
-    def __init__(self, result_path: str | Path):
+    def __init__(self, result_path: Union[str, Path]):
         self.result_path = Path(result_path)
 
     def save_screening_result(
         self,
         task_id: str,
         standard_ref: str,
-        recommended_candidates: list[dict],
+        recommended_candidates: List[Dict[str, Any]],
         identity: IdentityContext,
-    ) -> dict:
+    ) -> Dict[str, Any]:
         self.result_path.parent.mkdir(parents=True, exist_ok=True)
         record = {
             "task_id": task_id,
@@ -42,7 +40,7 @@ class ScreeningResultStore:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         return record
 
-    def _sanitize_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    def _sanitize_candidate(self, candidate: Dict[str, Any]) -> Dict[str, Any]:
         allowed = {"candidate_id", "recommend_reason", "risk_points"}
         sanitized = {key: value for key, value in dict(candidate or {}).items() if key in allowed and key not in SENSITIVE_RESULT_FIELDS}
         sanitized.setdefault("risk_points", [])

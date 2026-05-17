@@ -5,6 +5,8 @@ HR_ADMIN 可访问全量候选人默认范围，RECRUITER、DEPARTMENT_MANAGER �
 READONLY_VIEWER 只用于聚合统计，不允许获取候选人明细。
 """
 
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+
 from hr_mcp.models.context import IdentityContext
 
 
@@ -12,7 +14,7 @@ class PermissionService:
     def can_access_privileged_fields(self, identity: IdentityContext) -> bool:
         return identity.role == "HR_ADMIN" and bool(identity.access_reason)
 
-    def filter_candidate_records(self, records: list[dict], identity: IdentityContext) -> list[dict]:
+    def filter_candidate_records(self, records: List[Dict[str, Any]], identity: IdentityContext) -> List[Dict[str, Any]]:
         if identity.role == "HR_ADMIN":
             return records
         if identity.role == "READONLY_VIEWER":
@@ -25,7 +27,7 @@ class PermissionService:
             return [row for row in records if self._interviewer_matches(row, identity.user_id)]
         return []
 
-    def _interviewer_matches(self, row: dict, user_id: int) -> bool:
+    def _interviewer_matches(self, row: Dict[str, Any], user_id: int) -> bool:
         if row.get("interviewer_id") == user_id:
             return True
         interviewer_ids = row.get("interviewer_ids") or []

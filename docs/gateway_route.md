@@ -1,61 +1,63 @@
-﻿# HR MCP/API Gateway Route
+# HR MCP Centerized HTTP Route
 
-## 目标链路
+## Current Decision
 
-Claude Code CLI / ai_cli 只连接公司 API Gateway，不持有数据库账号，不直连 MySQL，不生成自由 SQL。
+The previous API Gateway plan is no longer the P0 deployment path. The company
+does not have a dedicated API Gateway for this project, so HR MCP now runs as a
+centerized FastAPI HTTP-MCP service.
 
-请求链路：
+Request path:
 
-`Claude Code CLI / ai_cli -> API Gateway -> HR MCP/API Service -> 受控安全数据服务 -> SQL 人才数据库`
+`Claude Code CLI -> HR MCP FastAPI service -> controlled data service -> MySQL`
 
-HR MCP/API 后端是安全数据服务层，不是 HR 业务 Agent。筛选、推荐、问答、分析和报告由 Claude Code CLI + 项目内 Skill 完成。
+The backend remains a secure data service, not an HR business agent. Candidate
+screening, recommendation, Q&A, analysis, and report writing stay in Claude Code
+CLI Skills.
 
-## Gateway 路由
+## Routes
 
-- 外部路径：`https://<gateway-host>/mcp/hr/p0`
-- 内部上游：`http://<hr-mcp-host>:8765/mcp`
-- 健康检查：`GET http://<hr-mcp-host>:8765/healthz`
-- 就绪检查：`GET http://<hr-mcp-host>:8765/readyz`
-- 调试工具清单：`GET http://<hr-mcp-host>:8765/mcp/tools`，仅 `HR_ADMIN` 或 `MCP_DEBUG` 角色。
-- 审计查询：`POST http://<hr-mcp-host>:8765/internal/audit/query`，仅 `HR_ADMIN` 或 `MCP_DEBUG` 角色。
+- `GET /healthz`: liveness.
+- `GET /readyz`: repository and local store readiness.
+- `POST /mcp`: MCP over HTTP JSON-RPC entry.
+- `GET /mcp/tools`: debug tool list, only `HR_ADMIN` or `MCP_DEBUG`.
+- `POST /internal/audit/query`: audit readback, only `HR_ADMIN` or `MCP_DEBUG`.
 
-## Header Contract
+## Identity Contract
 
-Gateway 必须透传以下 header：
+Claude Code CLI sends:
 
-- `X-Request-Id`：请求 ID。
-- `X-Trace-Id`：链路追踪 ID。
-- `X-User-Id`：SSO 用户 ID。
-- `X-User-Name`：SSO 用户姓名。
-- `X-User-Role`：HR MCP 角色，取值建议为 `HR_ADMIN`、`RECRUITER`、`DEPARTMENT_MANAGER`、`INTERVIEWER`、`READONLY_VIEWER`。
-- `X-Department-Id`：用户所属部门 ID，用于部门范围 ABAC。
-- `X-Client-Id`：客户端 ID，例如 `claudecode`、`ai_cli`。
-- `X-Access-Reason`：访问高权限字段时必填，并写入审计日志。
-- `X-Gateway-Secret`：可信 Gateway 到 HR MCP 服务的共享密钥 header；生产环境应配置 `HR_GATEWAY_SHARED_SECRET` 并由 Gateway 注入，防止客户端直连时伪造角色。
+- `Authorization: Bearer <token>`
+- Optional `X-Request-Id`
+- Optional `X-Trace-Id`
+- Optional `X-Client-Id`
+- Optional `X-Access-Reason` for privileged field access
 
-## 权限模型
+The service maps the token to `user_id`, `user_name`, `role`, and
+`department_id` by reading server-side token configuration. Client-supplied
+`X-User-Id`, `X-User-Role`, and `X-Department-Id` are ignored and must not be
+used as trusted identity.
 
-默认 Agent 可见字段只包含已确认字段。候选人 `name`、`gender`、`proposed_join_date` 按原文返回，不掩码。
+## Built-In Security
 
-高权限字段：
+Because there is no gateway, these controls are implemented in the FastAPI
+service:
 
-- `hr_candidate.mobile`
-- `hr_candidate.email`
-- `sys_user.phone`
-- `sys_user.email`
-- `sys_user.username`
+- Bearer token authentication.
+- Server-side role and department mapping.
+- IP allowlist.
+- Per-user rate limit.
+- Request body size limit.
+- Success and failure audit logging.
+- Field policy enforcement through the safe view service.
 
-访问高权限字段必须同时满足：
+## Privileged Fields
 
-1. `X-User-Role=HR_ADMIN`。
-2. `X-Access-Reason` 非空。
-3. 工具调用经过 `candidate_safe_view_service.py` 和 `field_policy.py`。
+Privileged fields are available only when all of these are true:
 
-## Gateway 侧建议
+1. The Bearer token maps to a privileged role, currently `HR_ADMIN`.
+2. `X-Access-Reason` or tool argument `access_reason` is non-empty.
+3. The request passes `candidate_safe_view_service.py` and `field_policy.py`.
 
-- 在 Gateway 完成 HTTPS、SSL 终止和 SSO 鉴权。
-- 生产环境在 HR MCP 服务端配置 `HR_GATEWAY_SHARED_SECRET`，Gateway 转发时注入匹配的 `X-Gateway-Secret`。
-- 对 `/mcp/hr/p0` 设置用户、设备、IP 访问控制。
-- 对 `POST /mcp` 做请求体大小限制和全局限流。
-- 记录 Gateway 请求日志，但不要记录高权限字段值。
-- 禁止把数据库账号、密码、SQL 连接串注入 Claude Code CLI 配置。
+Privileged field access must be audited. Database credentials and connection
+strings must stay in the server-side `.env` file and must never be configured in
+Claude Code CLI.
