@@ -75,6 +75,9 @@ def build_runtime(config: Optional[ConfigCenter] = None) -> RuntimeContainer:
 
 
 def _build_repository(config: ConfigCenter):
-    if config.data_backend == "mysql":
+    backend = config.data_backend
+    if backend == "mysql":
         return MySQLTalentRepository(config.mysql_config)
-    return DumpTalentRepository(config.dump_path)
+    if backend == "dump":
+        return DumpTalentRepository(config.dump_path)
+    raise ValueError("Unsupported HR_DATA_BACKEND: " + backend)

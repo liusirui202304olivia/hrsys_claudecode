@@ -21,6 +21,8 @@ class InvalidToolArgumentsError(ValueError):
 
 class ToolRouter:
     SAVE_ALLOWED_ROLES = {"HR_ADMIN", "RECRUITER"}
+    MAX_SEARCH_PAGE_SIZE = 300
+    MAX_DETAIL_BATCH = 50
 
     def __init__(
         self,
@@ -52,13 +54,13 @@ class ToolRouter:
             self._validate_arguments(tool_name, arguments)
 
             if tool_name == "search_candidate_safe_profiles":
-                candidates = self.retrieval_service.search_safe_profiles(
+                result = self.retrieval_service.search_safe_profiles(
                     filters=arguments.get("filters") or {},
                     return_fields=arguments.get("return_fields"),
-                    limit=arguments.get("limit") or 50,
+                    page_size=arguments.get("page_size", arguments.get("limit", 50)),
+                    cursor=arguments.get("cursor"),
                     identity=identity,
                 )
-                result = {"candidates": candidates}
             elif tool_name == "get_candidate_safe_detail_batch":
                 result = self.retrieval_service.get_safe_detail_batch(
                     candidate_ids=arguments.get("candidate_ids") or [],
@@ -114,12 +116,15 @@ class ToolRouter:
         if tool_name == "search_candidate_safe_profiles":
             self._validate_optional_dict(arguments, "filters")
             self._validate_optional_string_list(arguments, "return_fields")
-            if "limit" in arguments and not isinstance(arguments["limit"], int):
-                raise InvalidToolArgumentsError("search_candidate_safe_profiles.limit must be an integer")
+            self._validate_search_page_size(arguments)
+            if "cursor" in arguments and arguments["cursor"] is not None and not isinstance(arguments["cursor"], str):
+                raise InvalidToolArgumentsError("search_candidate_safe_profiles.cursor must be a string")
         elif tool_name == "get_candidate_safe_detail_batch":
             candidate_ids = arguments.get("candidate_ids")
             if not isinstance(candidate_ids, list):
                 raise InvalidToolArgumentsError("get_candidate_safe_detail_batch.candidate_ids must be an array")
+            if len(candidate_ids) > self.MAX_DETAIL_BATCH:
+                raise InvalidToolArgumentsError("get_candidate_safe_detail_batch accepts at most 50 candidate_ids per call")
             self._validate_optional_string_list(arguments, "return_fields")
         elif tool_name == "query_talent_pool_facts":
             self._validate_optional_dict(arguments, "filters")
@@ -150,6 +155,16 @@ class ToolRouter:
     def _validate_optional_string_list(self, arguments: Dict[str, Any], key: str) -> None:
         if key in arguments and not (isinstance(arguments[key], list) and all(isinstance(item, str) for item in arguments[key])):
             raise InvalidToolArgumentsError(f"{key} must be an array of strings")
+
+    def _validate_search_page_size(self, arguments: Dict[str, Any]) -> None:
+        for name in ["page_size", "limit"]:
+            if name not in arguments:
+                continue
+            raw_value = arguments[name]
+            if not isinstance(raw_value, int):
+                raise InvalidToolArgumentsError(f"search_candidate_safe_profiles.{name} must be an integer")
+            if raw_value < 1 or raw_value > self.MAX_SEARCH_PAGE_SIZE:
+                raise InvalidToolArgumentsError(f"search_candidate_safe_profiles.{name} must be between 1 and 300")
 
     def _audit(self, tool_name: str, arguments: Dict[str, Any], result: Dict[str, Any], identity: IdentityContext) -> None:
         if not self.audit_service:

@@ -5,6 +5,9 @@
 Repository 返回的记录仍需经过 safe view service 和 field policy 后才能暴露给 MCP 工具。
 """
 
+import base64
+import json
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
@@ -45,48 +48,89 @@ class MySQLTalentRepository:
         except Exception:
             return False
 
-    def search_candidates(self, filters: Optional[Dict[str, Any]], limit: int, include_privileged: bool = False) -> List[Dict[str, Any]]:
+    def search_candidates(
+        self,
+        filters: Optional[Dict[str, Any]],
+        page_size: int,
+        cursor: Optional[str] = None,
+        include_privileged: bool = False,
+        identity_scope: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         filters = filters or {}
-        where, params = self._where(filters)
+        page_size = self._validate_page_size(page_size)
+        where_parts, params = self._where_parts(filters, identity_scope)
+        cursor_sql, cursor_params = self._cursor_condition(cursor)
+        if cursor_sql:
+            where_parts.append(cursor_sql)
+            params.extend(cursor_params)
+        where = self._where_sql(where_parts)
         view_name = self._view(include_privileged)
         sql = f"""
             SELECT v.*
             FROM {view_name} v
             {where}
-            ORDER BY v.update_time DESC
+            ORDER BY COALESCE(v.update_time, '1970-01-01 00:00:00') DESC, v.candidate_id DESC
             LIMIT %s
         """
-        params.append(max(0, min(int(limit), 10_000)))
-        return self._fetch_all(sql, params)
+        params.append(page_size + 1)
+        rows = self._fetch_all(sql, params)
+        items = rows[:page_size]
+        return {
+            "items": items,
+            "total_count": self.count_candidates(filters, include_privileged=include_privileged, identity_scope=identity_scope),
+            "has_more": len(rows) > page_size,
+            "next_cursor": self._encode_cursor(items[-1]) if len(rows) > page_size and items else None,
+        }
 
-    def get_candidates_by_ids(self, candidate_ids: List[Union[int, str]], include_privileged: bool = False) -> List[Dict[str, Any]]:
+    def get_candidates_by_ids(
+        self,
+        candidate_ids: List[Union[int, str]],
+        include_privileged: bool = False,
+        identity_scope: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         if not candidate_ids:
             return []
         placeholders = ",".join(["%s"] * len(candidate_ids))
+        where_parts, params = self._scope_where_parts(identity_scope)
+        where_parts.insert(0, f"v.candidate_id IN ({placeholders})")
+        params = list(candidate_ids) + params
         view_name = self._view(include_privileged)
         sql = f"""
             SELECT v.*
             FROM {view_name} v
-            WHERE v.candidate_id IN ({placeholders})
+            {self._where_sql(where_parts)}
         """
-        return self._fetch_all(sql, list(candidate_ids))
+        return self._fetch_all(sql, params)
 
-    def count_candidates(self, filters: Optional[Dict[str, Any]]) -> int:
-        return len(self.search_candidates(filters or {}, 10_000))
+    def count_candidates(
+        self,
+        filters: Optional[Dict[str, Any]],
+        include_privileged: bool = False,
+        identity_scope: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        where_parts, params = self._where_parts(filters or {}, identity_scope)
+        sql = f"""
+            SELECT COUNT(*) AS total_count
+            FROM {self._view(include_privileged)} v
+            {self._where_sql(where_parts)}
+        """
+        rows = self._fetch_all(sql, params)
+        return int((rows[0] or {}).get("total_count") or 0) if rows else 0
 
-    def position_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return self._distribution("position_name", filters or {})
+    def position_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        return self._distribution("position_name", filters or {}, identity_scope)
 
-    def status_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return self._distribution("status", filters or {})
+    def status_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        return self._distribution("status", filters or {}, identity_scope)
 
-    def source_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        return self._distribution("source_name", filters or {})
+    def source_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        return self._distribution("source_name", filters or {}, identity_scope)
 
-    def _where(self, filters: Dict[str, Any]) -> Tuple[str, List[Any]]:
+    def _where_parts(self, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[Any]]:
         self._validate_filters(filters)
-        where: List[str] = []
-        params: List[Any] = []
+        where, params = self._scope_where_parts(identity_scope)
+        where = list(where)
+        params = list(params)
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query:
             where.append("v.position_name LIKE %s")
@@ -107,19 +151,86 @@ class MySQLTalentRepository:
             where.append("(v.skills LIKE %s OR v.experiences LIKE %s OR v.project_experiences LIKE %s)")
             like_value = f"%{keyword}%"
             params.extend([like_value, like_value, like_value])
-        return ("WHERE " + " AND ".join(where) if where else ""), params
+        return where, params
+
+    def _scope_where_parts(self, identity_scope: Optional[Dict[str, Any]]) -> Tuple[List[str], List[Any]]:
+        scope = identity_scope or {}
+        if scope.get("deny_all"):
+            return ["1 = 0"], []
+        role = scope.get("role")
+        if role == "RECRUITER":
+            return ["(v.hr_id = %s OR v.follower_id = %s)"], [scope.get("user_id"), scope.get("user_id")]
+        if role == "DEPARTMENT_MANAGER":
+            return ["v.proposed_department_id = %s"], [scope.get("department_id")]
+        if role == "INTERVIEWER":
+            return ["FIND_IN_SET(%s, COALESCE(v.interviewer_ids, ''))"], [scope.get("user_id")]
+        return [], []
+
+    def _where_sql(self, where_parts: List[str]) -> str:
+        return "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
     def _validate_filters(self, filters: Dict[str, Any]) -> None:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
         if unknown:
             raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
 
-    def _distribution(self, field: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
-        counts: Dict[str, int] = {}
-        for row in self.search_candidates(filters, 10_000):
-            key = row.get(field) or "UNKNOWN"
-            counts[key] = counts.get(key, 0) + 1
-        return [{field: key, "count": value} for key, value in counts.items()]
+    def _distribution(self, field: str, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        where_parts, params = self._where_parts(filters or {}, identity_scope)
+        sql = f"""
+            SELECT COALESCE(v.{field}, 'UNKNOWN') AS {field}, COUNT(*) AS count
+            FROM {self.SAFE_VIEW} v
+            {self._where_sql(where_parts)}
+            GROUP BY v.{field}
+            ORDER BY count DESC, v.{field} ASC
+        """
+        return self._fetch_all(sql, params)
+
+    def _validate_page_size(self, page_size: int) -> int:
+        try:
+            value = int(page_size)
+        except (TypeError, ValueError):
+            raise ValueError("page_size must be an integer")
+        if value < 1:
+            raise ValueError("page_size must be greater than 0")
+        return value
+
+    def _cursor_condition(self, cursor: Optional[str]) -> Tuple[str, List[Any]]:
+        if not cursor:
+            return "", []
+        payload = self._decode_cursor(cursor)
+        update_time = payload.get("update_time")
+        candidate_id = payload.get("candidate_id")
+        if not update_time or candidate_id is None:
+            raise ValueError("Invalid cursor")
+        sort_expr = "COALESCE(v.update_time, '1970-01-01 00:00:00')"
+        return (
+            f"({sort_expr} < %s OR ({sort_expr} = %s AND v.candidate_id < %s))",
+            [update_time, update_time, candidate_id],
+        )
+
+    def _encode_cursor(self, row: Dict[str, Any]) -> Optional[str]:
+        candidate_id = row.get("candidate_id") or row.get("id")
+        if candidate_id is None:
+            return None
+        update_time = row.get("update_time") or "1970-01-01 00:00:00"
+        if isinstance(update_time, datetime):
+            update_time = update_time.isoformat(sep=" ")
+        elif isinstance(update_time, date):
+            update_time = update_time.isoformat()
+        payload = {"update_time": str(update_time), "candidate_id": int(candidate_id)}
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def _decode_cursor(self, cursor: str) -> Dict[str, Any]:
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            raw = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+            payload = json.loads(raw)
+        except Exception:
+            raise ValueError("Invalid cursor")
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid cursor")
+        return payload
 
     def _fetch_all(self, sql: str, params: List[Any]) -> List[Dict[str, Any]]:
         import pymysql

@@ -82,7 +82,9 @@ def make_project(tmp_path: Path, env_text: str = "") -> Path:
     return tmp_path
 
 
-def make_app(tmp_path: Path, env_text: str = ""):
+def make_app(tmp_path: Path, env_text: str = "HR_DATA_BACKEND=dump\n"):
+    if "HR_DATA_BACKEND" not in env_text:
+        env_text = "HR_DATA_BACKEND=dump\n" + env_text
     project_root = make_project(tmp_path, env_text)
     return create_app(ConfigCenter(project_root=project_root))
 

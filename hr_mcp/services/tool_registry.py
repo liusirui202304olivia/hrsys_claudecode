@@ -35,10 +35,21 @@ class ToolRegistry:
                 "properties": {
                     "filters": CANDIDATE_FILTER_SCHEMA,
                     "return_fields": {"type": "array", "items": {"type": "string"}},
-                    "limit": {"type": "integer", "minimum": 0, "maximum": 300},
+                    "page_size": {"type": "integer", "minimum": 1, "maximum": 300},
+                    "cursor": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 300},
                 },
             },
-            "output_schema": {"type": "object", "properties": {"candidates": {"type": "array"}}},
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "candidates": {"type": "array"},
+                    "total_count": {"type": "integer"},
+                    "has_more": {"type": "boolean"},
+                    "next_cursor": {"type": ["string", "null"]},
+                    "page_size": {"type": "integer"},
+                },
+            },
         },
         {
             "name": "get_candidate_safe_detail_batch",

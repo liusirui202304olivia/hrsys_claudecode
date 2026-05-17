@@ -8,6 +8,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from hr_mcp.services.config_center import ConfigCenter
 from hr_mcp.services.identity_service import IdentityError, IdentityService
 
@@ -136,3 +138,23 @@ def test_config_center_exposes_intranet_security_config(tmp_path: Path):
     assert config.allowed_ip_cidrs == ["127.0.0.1/32", "10.0.0.0/8"]
     assert config.rate_limit_per_minute == 10
     assert config.max_request_bytes == 2048
+
+
+def test_data_backend_must_be_explicitly_configured(tmp_path: Path):
+    config = ConfigCenter(project_root=tmp_path)
+
+    with pytest.raises(ValueError, match="HR_DATA_BACKEND"):
+        _ = config.data_backend
+
+
+def test_data_backend_accepts_only_explicit_mysql_or_dump(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("HR_DATA_BACKEND=dump\n", encoding="utf-8")
+    assert ConfigCenter(project_root=tmp_path, env_path=env_file).data_backend == "dump"
+
+    env_file.write_text("HR_DATA_BACKEND=mysql\n", encoding="utf-8")
+    assert ConfigCenter(project_root=tmp_path, env_path=env_file).data_backend == "mysql"
+
+    env_file.write_text("HR_DATA_BACKEND=sqlite\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported HR_DATA_BACKEND"):
+        _ = ConfigCenter(project_root=tmp_path, env_path=env_file).data_backend

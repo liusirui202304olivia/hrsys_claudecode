@@ -5,8 +5,10 @@
 该层会读取原始字段，但不会直接决定 Agent 可见字段；安全投影由服务层完成。
 """
 
+import base64
 import json
 import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -37,22 +39,58 @@ class DumpTalentRepository:
         assert self._tables is not None
         return self._tables.get(table_name, [])
 
-    def search_candidates(self, filters: Optional[Dict[str, Any]], limit: int, include_privileged: bool = False) -> List[Dict[str, Any]]:
+    def search_candidates(
+        self,
+        filters: Optional[Dict[str, Any]],
+        page_size: int,
+        cursor: Optional[str] = None,
+        include_privileged: bool = False,
+        identity_scope: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        filters = filters or {}
+        self._validate_filters(filters)
+        page_size = self._validate_page_size(page_size)
+        rows = [row for row in self._joined_candidates() if self._candidate_matches(row, filters)]
+        rows = self._apply_scope(rows, identity_scope)
+        rows = self._sort_rows(rows)
+        if cursor:
+            rows = self._rows_after_cursor(rows, cursor)
+        total_count = len(self._apply_scope(
+            [row for row in self._joined_candidates() if self._candidate_matches(row, filters)],
+            identity_scope,
+        ))
+        page_rows = rows[:page_size]
+        return {
+            "items": page_rows,
+            "total_count": total_count,
+            "has_more": len(rows) > page_size,
+            "next_cursor": self._encode_cursor(page_rows[-1]) if len(rows) > page_size and page_rows else None,
+        }
+
+    def get_candidates_by_ids(
+        self,
+        candidate_ids: List[Union[int, str]],
+        include_privileged: bool = False,
+        identity_scope: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        ids = {str(candidate_id) for candidate_id in candidate_ids}
+        rows = [row for row in self._joined_candidates() if str(row.get("id")) in ids or str(row.get("candidate_id")) in ids]
+        return self._apply_scope(rows, identity_scope)
+
+    def count_candidates(
+        self,
+        filters: Optional[Dict[str, Any]],
+        include_privileged: bool = False,
+        identity_scope: Optional[Dict[str, Any]] = None,
+    ) -> int:
         filters = filters or {}
         self._validate_filters(filters)
         rows = [row for row in self._joined_candidates() if self._candidate_matches(row, filters)]
-        return rows[: max(0, min(int(limit), 10_000))]
+        return len(self._apply_scope(rows, identity_scope))
 
-    def get_candidates_by_ids(self, candidate_ids: List[Union[int, str]], include_privileged: bool = False) -> List[Dict[str, Any]]:
-        ids = {str(candidate_id) for candidate_id in candidate_ids}
-        return [row for row in self._joined_candidates() if str(row.get("id")) in ids or str(row.get("candidate_id")) in ids]
-
-    def count_candidates(self, filters: Optional[Dict[str, Any]]) -> int:
-        return len(self.search_candidates(filters or {}, 10_000_000))
-
-    def position_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def position_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         counts: Dict[str, int] = {}
-        for row in self.search_candidates(filters or {}, 10_000_000):
+        for row in self._aggregate_rows(filters or {}, identity_scope):
             key = row.get("position_name") or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
         return [
@@ -60,9 +98,9 @@ class DumpTalentRepository:
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
 
-    def status_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def status_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         counts: Dict[str, int] = {}
-        for row in self.search_candidates(filters or {}, 10_000_000):
+        for row in self._aggregate_rows(filters or {}, identity_scope):
             key = row.get("status") or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
         return [
@@ -70,9 +108,9 @@ class DumpTalentRepository:
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
 
-    def source_distribution(self, filters: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def source_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         counts: Dict[str, int] = {}
-        for row in self.search_candidates(filters or {}, 10_000_000):
+        for row in self._aggregate_rows(filters or {}, identity_scope):
             key = row.get("source_name") or "UNKNOWN"
             counts[key] = counts.get(key, 0) + 1
         return [
@@ -84,6 +122,71 @@ class DumpTalentRepository:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
         if unknown:
             raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
+
+    def _aggregate_rows(self, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        self._validate_filters(filters)
+        rows = [row for row in self._joined_candidates() if self._candidate_matches(row, filters)]
+        return self._apply_scope(rows, identity_scope)
+
+    def _apply_scope(self, rows: List[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        scope = identity_scope or {}
+        if scope.get("deny_all"):
+            return []
+        role = scope.get("role")
+        if role == "RECRUITER":
+            user_id = scope.get("user_id")
+            return [row for row in rows if row.get("hr_id") == user_id or row.get("follower_id") == user_id]
+        if role == "DEPARTMENT_MANAGER":
+            department_id = scope.get("department_id")
+            return [row for row in rows if row.get("proposed_department_id") == department_id]
+        if role == "INTERVIEWER":
+            user_id = str(scope.get("user_id"))
+            return [row for row in rows if user_id in {str(item) for item in row.get("interviewer_ids", [])}]
+        return list(rows)
+
+    def _validate_page_size(self, page_size: int) -> int:
+        try:
+            value = int(page_size)
+        except (TypeError, ValueError):
+            raise ValueError("page_size must be an integer")
+        if value < 1:
+            raise ValueError("page_size must be greater than 0")
+        return value
+
+    def _sort_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return sorted(rows, key=lambda row: (str(row.get("update_time") or ""), int(row.get("candidate_id") or row.get("id") or 0)), reverse=True)
+
+    def _rows_after_cursor(self, rows: List[Dict[str, Any]], cursor: str) -> List[Dict[str, Any]]:
+        payload = self._decode_cursor(cursor)
+        cursor_key = (str(payload.get("update_time") or ""), int(payload.get("candidate_id") or 0))
+        return [
+            row for row in rows
+            if (str(row.get("update_time") or ""), int(row.get("candidate_id") or row.get("id") or 0)) < cursor_key
+        ]
+
+    def _encode_cursor(self, row: Dict[str, Any]) -> Optional[str]:
+        candidate_id = row.get("candidate_id") or row.get("id")
+        if candidate_id is None:
+            return None
+        update_time = row.get("update_time") or ""
+        if isinstance(update_time, datetime):
+            update_time = update_time.isoformat(sep=" ")
+        elif isinstance(update_time, date):
+            update_time = update_time.isoformat()
+        payload = {"update_time": str(update_time), "candidate_id": int(candidate_id)}
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def _decode_cursor(self, cursor: str) -> Dict[str, Any]:
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            raw = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+            payload = json.loads(raw)
+        except Exception:
+            raise ValueError("Invalid cursor")
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid cursor")
+        return payload
 
     def _ensure_loaded(self) -> None:
         if self._tables is not None:

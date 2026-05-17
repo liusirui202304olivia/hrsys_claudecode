@@ -74,7 +74,13 @@ class ConfigCenter:
     @property
     def data_backend(self):
         # type: () -> str
-        return self.env.get("HR_DATA_BACKEND", "dump").lower()
+        raw = self.env.get("HR_DATA_BACKEND")
+        if raw is None or not raw.strip():
+            raise ValueError("HR_DATA_BACKEND must be explicitly configured as mysql or dump")
+        value = raw.strip().lower()
+        if value not in {"mysql", "dump"}:
+            raise ValueError("Unsupported HR_DATA_BACKEND: " + raw)
+        return value
 
     @property
     def allowed_ip_cidrs(self):

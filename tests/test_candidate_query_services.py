@@ -17,6 +17,9 @@ from hr_mcp.services.talent_pool_query_service import TalentPoolQueryService
 
 class FakeRepository:
     def __init__(self):
+        self.search_calls = []
+        self.count_calls = []
+        self.distribution_calls = []
         self.records = [
             {
                 "id": 1,
@@ -46,27 +49,68 @@ class FakeRepository:
             },
         ]
 
-    def search_candidates(self, filters, limit, include_privileged=False):
-        return self.records[:limit]
+    def search_candidates(self, filters, page_size, cursor=None, include_privileged=False, identity_scope=None):
+        self.search_calls.append({
+            "filters": filters,
+            "page_size": page_size,
+            "cursor": cursor,
+            "include_privileged": include_privileged,
+            "identity_scope": identity_scope,
+        })
+        rows = self._apply_scope(self.records, identity_scope)
+        page = rows[:page_size]
+        return {
+            "items": page,
+            "total_count": len(rows),
+            "has_more": len(rows) > len(page),
+            "next_cursor": "cursor-2" if len(rows) > len(page) else None,
+        }
 
-    def get_candidates_by_ids(self, candidate_ids, include_privileged=False):
+    def get_candidates_by_ids(self, candidate_ids, include_privileged=False, identity_scope=None):
         ids = {int(candidate_id) for candidate_id in candidate_ids}
-        return [row for row in self.records if row["id"] in ids]
+        rows = self._apply_scope(self.records, identity_scope)
+        return [row for row in rows if row["id"] in ids]
 
-    def count_candidates(self, filters):
-        return len(self.records)
+    def count_candidates(self, filters, identity_scope=None):
+        self.count_calls.append({"filters": filters, "identity_scope": identity_scope})
+        return len(self._apply_scope(self.records, identity_scope))
 
-    def position_distribution(self, filters):
+    def position_distribution(self, filters, identity_scope=None):
+        self.distribution_calls.append(("position_name", identity_scope))
+        return self._distribution("position_name", identity_scope)
+
+    def status_distribution(self, filters, identity_scope=None):
+        self.distribution_calls.append(("status", identity_scope))
+        return self._distribution("status", identity_scope)
+
+    def source_distribution(self, filters, identity_scope=None):
+        self.distribution_calls.append(("source_name", identity_scope))
+        return self._distribution("source_name", identity_scope)
+
+    def _distribution(self, field_name, identity_scope):
+        counts = {}
+        for row in self._apply_scope(self.records, identity_scope):
+            key = row.get(field_name) or "UNKNOWN"
+            counts[key] = counts.get(key, 0) + 1
         return [
-            {"position_name": "芯片建模工程师", "count": 1},
-            {"position_name": "应用软件开发工程师", "count": 1},
+            {field_name: key, "count": count}
+            for key, count in sorted(counts.items(), key=lambda item: (-item[1], str(item[0])))
         ]
 
-    def status_distribution(self, filters):
-        return [{"status": "SCREEN_PROCESS", "count": 1}, {"status": "REJECTED", "count": 1}]
-
-    def source_distribution(self, filters):
-        return [{"source_name": "历史导入", "count": 2}]
+    def _apply_scope(self, rows, identity_scope):
+        identity_scope = identity_scope or {}
+        if identity_scope.get("deny_all"):
+            return []
+        if identity_scope.get("role") == "RECRUITER":
+            user_id = identity_scope.get("user_id")
+            return [row for row in rows if row.get("hr_id") == user_id or row.get("follower_id") == user_id]
+        if identity_scope.get("role") == "DEPARTMENT_MANAGER":
+            department_id = identity_scope.get("department_id")
+            return [row for row in rows if row.get("proposed_department_id") == department_id]
+        if identity_scope.get("role") == "INTERVIEWER":
+            user_id = str(identity_scope.get("user_id"))
+            return [row for row in rows if user_id in {str(item) for item in row.get("interviewer_ids", [])}]
+        return list(rows)
 
 
 def make_services():
@@ -82,14 +126,49 @@ def test_search_profiles_returns_only_safe_fields_for_recruiter_scope():
     retrieval, _ = make_services()
     identity = IdentityContext(user_id=2, role="RECRUITER")
 
-    rows = retrieval.search_safe_profiles(
+    result = retrieval.search_safe_profiles(
         filters={},
         return_fields=["candidate_id", "name", "gender", "status"],
-        limit=10,
+        page_size=10,
         identity=identity,
     )
 
-    assert rows == [{"candidate_id": 1, "name": "张三", "gender": "MALE", "status": "SCREEN_PROCESS"}]
+    assert result["candidates"] == [{"candidate_id": 1, "name": "张三", "gender": "MALE", "status": "SCREEN_PROCESS"}]
+    assert result["total_count"] == 1
+    assert result["has_more"] is False
+    assert result["next_cursor"] is None
+
+
+def test_search_profiles_returns_page_metadata_without_limiting_total_count():
+    retrieval, _ = make_services()
+    identity = IdentityContext(user_id=1, role="HR_ADMIN")
+
+    result = retrieval.search_safe_profiles(
+        filters={},
+        return_fields=["candidate_id", "name"],
+        page_size=1,
+        cursor=None,
+        identity=identity,
+    )
+
+    assert result["candidates"] == [{"candidate_id": 1, "name": "张三"}]
+    assert result["total_count"] == 2
+    assert result["has_more"] is True
+    assert result["next_cursor"] == "cursor-2"
+    assert result["page_size"] == 1
+
+
+def test_search_profiles_rejects_page_size_outside_policy_limit():
+    retrieval, _ = make_services()
+    identity = IdentityContext(user_id=1, role="HR_ADMIN")
+
+    with pytest.raises(ValueError):
+        retrieval.search_safe_profiles(
+            filters={},
+            return_fields=["candidate_id"],
+            page_size=301,
+            identity=identity,
+        )
 
 
 def test_search_profiles_rejects_privileged_fields_for_non_privileged_role():
@@ -100,27 +179,25 @@ def test_search_profiles_rejects_privileged_fields_for_non_privileged_role():
         retrieval.search_safe_profiles(
             filters={},
             return_fields=["name", "mobile"],
-            limit=10,
+            page_size=10,
             identity=identity,
         )
 
 
-def test_detail_batch_is_limited_to_50_candidates():
+def test_detail_batch_rejects_more_than_50_candidates_without_silent_truncation():
     retrieval, _ = make_services()
     identity = IdentityContext(user_id=1, role="HR_ADMIN")
 
-    result = retrieval.get_safe_detail_batch(
-        candidate_ids=list(range(100)),
-        return_fields=["name"],
-        identity=identity,
-    )
-
-    assert len(result["candidate_ids_requested"]) == 50
-    assert result["limit_applied"] == 50
+    with pytest.raises(ValueError):
+        retrieval.get_safe_detail_batch(
+            candidate_ids=list(range(100)),
+            return_fields=["name"],
+            identity=identity,
+        )
 
 
 def test_query_facts_returns_aggregate_without_contact_fields():
-    _, query = make_services()
+    retrieval, query = make_services()
     identity = IdentityContext(user_id=1, role="READONLY_VIEWER")
 
     result = query.query_facts(
@@ -131,6 +208,7 @@ def test_query_facts_returns_aggregate_without_contact_fields():
     )
 
     assert result["count"] == 2
+    assert retrieval.repository.search_calls == []
     assert "mobile" not in str(result)
     assert "email" not in str(result)
     assert {row["position_name"] for row in result["position_distribution"]} == {"芯片建模工程师", "应用软件开发工程师"}
@@ -142,18 +220,19 @@ def test_readonly_viewer_cannot_retrieve_candidate_profiles():
     retrieval, _ = make_services()
     identity = IdentityContext(user_id=9, role="READONLY_VIEWER")
 
-    rows = retrieval.search_safe_profiles(
+    result = retrieval.search_safe_profiles(
         filters={},
         return_fields=["name", "gender", "status"],
-        limit=10,
+        page_size=10,
         identity=identity,
     )
 
-    assert rows == []
+    assert result["candidates"] == []
+    assert result["total_count"] == 0
 
 
 def test_query_facts_applies_recruiter_scope_to_aggregates():
-    _, query = make_services()
+    retrieval, query = make_services()
     identity = IdentityContext(user_id=2, role="RECRUITER")
 
     result = query.query_facts(
@@ -164,6 +243,8 @@ def test_query_facts_applies_recruiter_scope_to_aggregates():
     )
 
     assert result["count"] == 1
+    assert retrieval.repository.search_calls == []
+    assert retrieval.repository.count_calls[-1]["identity_scope"] == {"role": "RECRUITER", "user_id": 2}
     assert result["position_distribution"] == [{"position_name": "芯片建模工程师", "count": 1}]
     assert result["status_distribution"] == [{"status": "SCREEN_PROCESS", "count": 1}]
 
@@ -174,11 +255,11 @@ def test_interviewer_scope_uses_joined_interviewer_ids():
     retrieval.repository.records[1]["interviewer_ids"] = [99]
     identity = IdentityContext(user_id=42, role="INTERVIEWER")
 
-    rows = retrieval.search_safe_profiles(
+    result = retrieval.search_safe_profiles(
         filters={},
         return_fields=["candidate_id", "name"],
-        limit=10,
+        page_size=10,
         identity=identity,
     )
 
-    assert rows == [{"candidate_id": 1, "name": "张三"}]
+    assert result["candidates"] == [{"candidate_id": 1, "name": "张三"}]

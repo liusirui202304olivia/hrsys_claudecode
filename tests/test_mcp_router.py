@@ -17,15 +17,21 @@ from hr_mcp.services.tool_router import ToolRouter
 
 
 class FakeRetrievalService:
-    def search_safe_profiles(self, filters, return_fields, limit, identity):
-        return [{"candidate_id": 1, "name": "张三"}]
+    def search_safe_profiles(self, filters, return_fields, page_size, identity, cursor=None):
+        return {
+            "candidates": [{"candidate_id": 1, "name": "张三"}],
+            "total_count": 1,
+            "has_more": False,
+            "next_cursor": None,
+            "page_size": page_size,
+        }
 
     def get_safe_detail_batch(self, candidate_ids, return_fields, identity):
         return {"candidates": [{"candidate_id": candidate_ids[0], "name": "张三"}]}
 
 
 class FieldDenyingRetrievalService(FakeRetrievalService):
-    def search_safe_profiles(self, filters, return_fields, limit, identity):
+    def search_safe_profiles(self, filters, return_fields, page_size, identity, cursor=None):
         raise FieldAccessError("Field hr_candidate.mobile requires privileged role")
 
 
@@ -116,6 +122,7 @@ def test_router_calls_registered_tools_and_records_audit():
     )
 
     assert result["candidates"][0]["name"] == "张三"
+    assert result["total_count"] == 1
     assert audit.calls[-1]["tool_name"] == "search_candidate_safe_profiles"
     assert audit.calls[-1]["fields"] == ["name"]
 
@@ -184,6 +191,60 @@ def test_jsonrpc_invalid_params_returns_invalid_params_error():
 
     response = handler.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": []}, identity)
     assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+
+
+def test_search_invalid_page_size_returns_invalid_params_before_calling_service():
+    class FailingIfCalledRetrievalService(FakeRetrievalService):
+        def search_safe_profiles(self, filters, return_fields, page_size, identity, cursor=None):
+            raise AssertionError("retrieval service should not be called for invalid page_size")
+
+    router, audit, _ = build_router_with_retrieval(FailingIfCalledRetrievalService())
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN", request_id="req-page-size")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-page-size",
+            "method": "tools/call",
+            "params": {
+                "name": "search_candidate_safe_profiles",
+                "arguments": {"page_size": 301},
+            },
+        },
+        identity,
+    )
+
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+    assert audit.calls[-1]["status"] == "failure"
+    assert audit.calls[-1]["error_type"] == "InvalidToolArgumentsError"
+
+
+def test_detail_batch_too_many_ids_returns_invalid_params_before_calling_service():
+    class FailingIfCalledRetrievalService(FakeRetrievalService):
+        def get_safe_detail_batch(self, candidate_ids, return_fields, identity):
+            raise AssertionError("retrieval service should not be called for too many candidate_ids")
+
+    router, audit, _ = build_router_with_retrieval(FailingIfCalledRetrievalService())
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN", request_id="req-detail-size")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-detail-size",
+            "method": "tools/call",
+            "params": {
+                "name": "get_candidate_safe_detail_batch",
+                "arguments": {"candidate_ids": list(range(51))},
+            },
+        },
+        identity,
+    )
+
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+    assert audit.calls[-1]["status"] == "failure"
+    assert audit.calls[-1]["error_type"] == "InvalidToolArgumentsError"
 
     response = handler.handle(
         {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "query_talent_pool_facts", "arguments": "bad"}},

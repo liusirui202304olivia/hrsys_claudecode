@@ -21,11 +21,11 @@ python -m hr_mcp
 ```env
 HR_MCP_HOST=127.0.0.1
 HR_MCP_PORT=8765
-HR_DATA_BACKEND=dump
+HR_DATA_BACKEND=mysql
 HR_AUTH_TOKENS_PATH=config/auth_tokens.json
 ```
 
-P0 默认使用 SQL dump 验证链路：`hr_data_sample/devops_hr_user_data_0508_1.sql`。接内网 MySQL 时由服务端 `.env` 配置数据库连接，Claude Code CLI 不保存数据库账号和密码。
+`HR_DATA_BACKEND` 必须显式配置。内网真实联调使用 `mysql`；`dump` 只允许作为本地测试 fixture 显式配置，服务不能在未配置时自动回退到 dump。接内网 MySQL 时由服务端 `.env` 配置数据库连接，Claude Code CLI 不保存数据库账号和密码。
 
 ## MCP HTTP Endpoint
 
@@ -91,11 +91,25 @@ skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘汇
     "arguments": {
       "filters": {"position_query": "CPU性能建模工程师", "min_work_years": 3},
       "return_fields": ["candidate_id", "name", "gender", "degree", "college", "major", "work_years", "skills", "proposed_join_date"],
-      "limit": 20
+      "page_size": 20
     }
   }
 }
 ```
+
+`search_candidate_safe_profiles` 返回的是分页结果：
+
+```json
+{
+  "candidates": [],
+  "total_count": 128,
+  "has_more": true,
+  "next_cursor": "opaque-cursor",
+  "page_size": 20
+}
+```
+
+`total_count` 是全量匹配数量，不受当前页大小影响。`page_size` 只限制单次返回给 Agent 的候选人数量；需要更多候选人时用 `next_cursor` 继续翻页。
 
 事实查询：
 

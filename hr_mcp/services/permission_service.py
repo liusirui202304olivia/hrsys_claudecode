@@ -14,6 +14,24 @@ class PermissionService:
     def can_access_privileged_fields(self, identity: IdentityContext) -> bool:
         return identity.role == "HR_ADMIN" and bool(identity.access_reason)
 
+    def candidate_query_scope(self, identity: IdentityContext) -> Dict[str, Any]:
+        if identity.role == "HR_ADMIN":
+            return {}
+        if identity.role == "READONLY_VIEWER":
+            return {"deny_all": True}
+        if identity.role == "RECRUITER" and identity.user_id is not None:
+            return {"role": "RECRUITER", "user_id": identity.user_id}
+        if identity.role == "DEPARTMENT_MANAGER" and identity.department_id is not None:
+            return {"role": "DEPARTMENT_MANAGER", "department_id": identity.department_id}
+        if identity.role == "INTERVIEWER" and identity.user_id is not None:
+            return {"role": "INTERVIEWER", "user_id": identity.user_id}
+        return {"deny_all": True}
+
+    def aggregate_query_scope(self, identity: IdentityContext) -> Dict[str, Any]:
+        if identity.role == "READONLY_VIEWER":
+            return {}
+        return self.candidate_query_scope(identity)
+
     def filter_candidate_records(self, records: List[Dict[str, Any]], identity: IdentityContext) -> List[Dict[str, Any]]:
         if identity.role == "HR_ADMIN":
             return records

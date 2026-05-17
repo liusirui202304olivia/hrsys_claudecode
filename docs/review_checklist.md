@@ -25,6 +25,10 @@
 ## 数据访问
 
 - [ ] `mysql_repository.py` 只接受受控 filter，不暴露自由 SQL。
+- [ ] `search_candidate_safe_profiles` 只限制单次 `page_size`，返回 `total_count`、`has_more`、`next_cursor`，不限制参与查询的候选人总量。
+- [ ] `query_talent_pool_facts` 使用 repository 的 `COUNT(*)` / `GROUP BY` 聚合，不通过拉取固定条数候选人做 Python 统计。
+- [ ] `get_candidate_safe_detail_batch` 超过单次 50 个 ID 时拒绝请求，不静默截断。
+- [ ] `HR_DATA_BACKEND` 必须显式配置；真实内网联调使用 `mysql`，`dump` 仅用于显式本地测试。
 - [ ] SQL dump 验证路径可解析核心表。
 - [ ] 安全视图 SQL 不把联系方式放入默认视图。
 - [ ] 客户端配置不包含数据库账号、密码或连接串。

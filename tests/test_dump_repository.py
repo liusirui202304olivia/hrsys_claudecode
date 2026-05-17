@@ -91,9 +91,12 @@ def write_dump(tmp_path: Path) -> Path:
 def test_dump_repository_parses_schema_and_joined_rows(tmp_path: Path):
     repo = DumpTalentRepository(write_dump(tmp_path))
 
-    candidates = repo.search_candidates({"position_query": "芯片建模"}, limit=10)
+    page = repo.search_candidates({"position_query": "芯片建模"}, page_size=10)
+    candidates = page["items"]
 
     assert len(candidates) == 1
+    assert page["total_count"] == 1
+    assert page["has_more"] is False
     assert candidates[0]["id"] == 1
     assert candidates[0]["name"] == "张三"
     assert candidates[0]["position_name"] == "芯片建模工程师"
@@ -104,14 +107,15 @@ def test_dump_repository_parses_schema_and_joined_rows(tmp_path: Path):
 def test_dump_repository_filters_status_keyword_and_work_years(tmp_path: Path):
     repo = DumpTalentRepository(write_dump(tmp_path))
 
-    candidates = repo.search_candidates(
+    page = repo.search_candidates(
         {
             "status": ["SCREEN_PROCESS"],
             "skills_any": ["gem5"],
             "min_work_years": 3,
         },
-        limit=10,
+        page_size=10,
     )
+    candidates = page["items"]
 
     assert [row["name"] for row in candidates] == ["张三"]
 
@@ -131,7 +135,22 @@ def test_dump_repository_rejects_unknown_filters(tmp_path: Path):
     repo = DumpTalentRepository(write_dump(tmp_path))
 
     with pytest.raises(ValueError):
-        repo.search_candidates({"free_sql": "status = 'x'"}, limit=10)
+        repo.search_candidates({"free_sql": "status = 'x'"}, page_size=10)
+
+
+def test_dump_repository_search_paginates_without_changing_total_count(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    first_page = repo.search_candidates({}, page_size=1)
+    second_page = repo.search_candidates({}, page_size=1, cursor=first_page["next_cursor"])
+
+    assert len(first_page["items"]) == 1
+    assert first_page["total_count"] == 2
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"]
+    assert len(second_page["items"]) == 1
+    assert second_page["total_count"] == 2
+    assert second_page["has_more"] is False
 
 
 def test_mysql_repository_uses_safe_view_by_default_and_privileged_only_when_requested():
@@ -146,13 +165,67 @@ def test_mysql_repository_uses_safe_view_by_default_and_privileged_only_when_req
 
     repo = RecordingRepo()
 
-    repo.search_candidates({}, limit=10)
+    repo.search_candidates({}, page_size=10)
     assert "v_candidate_agent_safe" in repo.last_sql
     assert "v_candidate_agent_privileged" not in repo.last_sql
 
-    repo.search_candidates({}, limit=10, include_privileged=True)
+    repo.search_candidates({}, page_size=10, include_privileged=True)
     assert "v_candidate_agent_privileged" in repo.last_sql
 
     source = inspect.getsource(MySQLTalentRepository)
 
     assert "SELECT c.*" not in source
+
+
+def test_mysql_repository_search_uses_keyset_pagination_and_page_size_plus_one():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.last_sql = ""
+            self.last_params = []
+            self.sqls = []
+            self.params_list = []
+
+        def _fetch_all(self, sql, params):
+            self.last_sql = sql
+            self.last_params = params
+            self.sqls.append(sql)
+            self.params_list.append(params)
+            return [
+                {"candidate_id": 2, "update_time": "2026-01-02 00:00:00", "name": "A"},
+                {"candidate_id": 1, "update_time": "2026-01-01 00:00:00", "name": "B"},
+            ]
+
+    repo = RecordingRepo()
+
+    page = repo.search_candidates({}, page_size=1)
+
+    assert page["items"] == [{"candidate_id": 2, "update_time": "2026-01-02 00:00:00", "name": "A"}]
+    assert page["has_more"] is True
+    assert page["next_cursor"]
+    assert "ORDER BY COALESCE(v.update_time" in repo.sqls[0]
+    assert "v.candidate_id DESC" in repo.sqls[0]
+    assert repo.params_list[0][-1] == 2
+
+
+def test_mysql_repository_count_and_distributions_use_sql_aggregates():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 123}]
+            return [{"position_name": "芯片建模工程师", "count": 12}]
+
+    repo = RecordingRepo()
+
+    assert repo.count_candidates({}) == 123
+    assert repo.position_distribution({}) == [{"position_name": "芯片建模工程师", "count": 12}]
+    combined_sql = "\n".join(repo.sqls)
+
+    assert "COUNT(*) AS total_count" in combined_sql
+    assert "GROUP BY v.position_name" in combined_sql
+    assert "search_candidates(filters" not in inspect.getsource(MySQLTalentRepository)
