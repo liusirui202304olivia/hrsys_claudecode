@@ -34,6 +34,19 @@ def test_default_agent_fields_allow_candidate_name_gender_and_join_date():
     assert allowed == ["candidate_id", "name", "gender", "proposed_join_date"]
 
 
+def test_default_agent_fields_allow_position_name_and_jd_in_candidate_profile():
+    policy = FieldPolicy()
+
+    allowed = policy.allowed_fields(
+        "hr_candidate",
+        ["candidate_id", "position_name", "position_jd"],
+        role="RECRUITER",
+        access_reason=None,
+    )
+
+    assert allowed == ["candidate_id", "position_name", "position_jd"]
+
+
 def test_field_policy_loads_project_yaml_consistently(tmp_path):
     policy_file = tmp_path / "field_policy.yml"
     policy_file.write_text(

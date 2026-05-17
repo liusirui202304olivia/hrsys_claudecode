@@ -68,6 +68,8 @@ class CandidateRetrievalService:
     def _validate_page_size(self, page_size: Optional[int]) -> int:
         if page_size is None:
             return self.DEFAULT_PAGE_SIZE
+        if isinstance(page_size, bool):
+            raise ValueError("page_size must be an integer")
         try:
             value = int(page_size)
         except (TypeError, ValueError):

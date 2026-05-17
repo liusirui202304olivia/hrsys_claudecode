@@ -5,6 +5,7 @@
 这些测试保证数据访问层可用于离线验证，并维持 P0 不暴露自由 SQL 的约束。
 """
 
+import re
 from pathlib import Path
 
 import inspect
@@ -229,3 +230,27 @@ def test_mysql_repository_count_and_distributions_use_sql_aggregates():
     assert "COUNT(*) AS total_count" in combined_sql
     assert "GROUP BY v.position_name" in combined_sql
     assert "search_candidates(filters" not in inspect.getsource(MySQLTalentRepository)
+
+
+def test_mysql_repository_recruiter_scope_uses_aggregated_follower_ids():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+            self.params_list = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            self.params_list.append(params)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 1}]
+            return [{"candidate_id": 1, "update_time": "2026-01-01 00:00:00"}]
+
+    repo = RecordingRepo()
+
+    repo.search_candidates({}, page_size=10, identity_scope={"role": "RECRUITER", "user_id": 42})
+    combined_sql = "\n".join(repo.sqls)
+
+    assert "FIND_IN_SET(%s, COALESCE(v.follower_ids, ''))" in combined_sql
+    assert re.search(r"\bv\.follower_id\b", combined_sql) is None
+    assert repo.params_list[0][:2] == [42, 42]

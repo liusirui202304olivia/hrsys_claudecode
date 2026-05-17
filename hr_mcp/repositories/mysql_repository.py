@@ -159,7 +159,7 @@ class MySQLTalentRepository:
             return ["1 = 0"], []
         role = scope.get("role")
         if role == "RECRUITER":
-            return ["(v.hr_id = %s OR v.follower_id = %s)"], [scope.get("user_id"), scope.get("user_id")]
+            return ["(v.hr_id = %s OR FIND_IN_SET(%s, COALESCE(v.follower_ids, '')))"], [scope.get("user_id"), scope.get("user_id")]
         if role == "DEPARTMENT_MANAGER":
             return ["v.proposed_department_id = %s"], [scope.get("department_id")]
         if role == "INTERVIEWER":

@@ -22,6 +22,7 @@ DEFAULT_VISIBLE_FIELDS: Dict[str, Set[str]] = {
         "experiences", "latest_interview_id", "proposed_join_date",
         "proposed_department_id", "is_focused", "match_point", "create_time",
         "update_time", "manual_import", "project_experiences", "skills",
+        "position_name", "position_jd",
     },
     "hr_position": {"name", "category", "jd", "is_active"},
     "hr_screen_evaluate": {"id", "candidate_id", "screener_id", "feedback", "result", "create_time", "update_time"},

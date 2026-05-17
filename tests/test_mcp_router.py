@@ -220,6 +220,34 @@ def test_search_invalid_page_size_returns_invalid_params_before_calling_service(
     assert audit.calls[-1]["error_type"] == "InvalidToolArgumentsError"
 
 
+@pytest.mark.parametrize("arguments", [{"page_size": True}, {"limit": False}])
+def test_search_boolean_page_size_returns_invalid_params_before_calling_service(arguments):
+    class FailingIfCalledRetrievalService(FakeRetrievalService):
+        def search_safe_profiles(self, filters, return_fields, page_size, identity, cursor=None):
+            raise AssertionError("retrieval service should not be called for boolean page_size")
+
+    router, audit, _ = build_router_with_retrieval(FailingIfCalledRetrievalService())
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN", request_id="req-bool-page-size")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-bool-page-size",
+            "method": "tools/call",
+            "params": {
+                "name": "search_candidate_safe_profiles",
+                "arguments": arguments,
+            },
+        },
+        identity,
+    )
+
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+    assert audit.calls[-1]["status"] == "failure"
+    assert audit.calls[-1]["error_type"] == "InvalidToolArgumentsError"
+
+
 def test_detail_batch_too_many_ids_returns_invalid_params_before_calling_service():
     class FailingIfCalledRetrievalService(FakeRetrievalService):
         def get_safe_detail_batch(self, candidate_ids, return_fields, identity):

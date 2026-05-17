@@ -24,6 +24,8 @@
     - manual_import
     - project_experiences
     - skills
+    - position_name
+    - position_jd
   hr_position: [name, category, jd, is_active]
   hr_screen_evaluate: [id, candidate_id, screener_id, feedback, result, create_time, update_time]
   hr_interview: [id, candidate_id, name, interview_type, interview_time, status, create_time, update_time]

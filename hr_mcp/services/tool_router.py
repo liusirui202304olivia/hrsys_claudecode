@@ -161,7 +161,7 @@ class ToolRouter:
             if name not in arguments:
                 continue
             raw_value = arguments[name]
-            if not isinstance(raw_value, int):
+            if isinstance(raw_value, bool) or not isinstance(raw_value, int):
                 raise InvalidToolArgumentsError(f"search_candidate_safe_profiles.{name} must be an integer")
             if raw_value < 1 or raw_value > self.MAX_SEARCH_PAGE_SIZE:
                 raise InvalidToolArgumentsError(f"search_candidate_safe_profiles.{name} must be between 1 and 300")
