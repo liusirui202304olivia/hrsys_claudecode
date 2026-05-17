@@ -27,11 +27,19 @@ class ConfigCenter:
     @property
     def audit_path(self):
         # type: () -> Path
+        raw = self.env.get("HR_AUDIT_PATH")
+        if raw:
+            path = Path(raw)
+            return path if path.is_absolute() else self.project_root / path
         return self.project_root / "runtime" / "audit" / "audit.jsonl"
 
     @property
     def result_path(self):
         # type: () -> Path
+        raw = self.env.get("HR_RESULT_PATH")
+        if raw:
+            path = Path(raw)
+            return path if path.is_absolute() else self.project_root / path
         return self.project_root / "runtime" / "results" / "screening_results.jsonl"
 
     @property

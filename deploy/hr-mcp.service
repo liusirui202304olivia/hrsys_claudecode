@@ -1,0 +1,23 @@
+[Unit]
+Description=HR MCP FastAPI HTTP service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=marc
+Group=marc
+WorkingDirectory=/workspace/devops/env_prod/service/ai/hr_mcp/app
+EnvironmentFile=/workspace/devops/env_prod/service/ai/hr_mcp/.env
+Environment=HR_MCP_ENV_PATH=/workspace/devops/env_prod/service/ai/hr_mcp/.env
+ExecStart=/workspace/devops/env_prod/service/ai/hr_mcp/venv_py36/bin/python -m hr_mcp
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+SyslogIdentifier=hr-mcp
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,22 +1,22 @@
 {
   "tokens": {
     "replace-admin-token": {
-      "user_id": 1,
+      "user_id": "1",
       "user_name": "HR Admin",
       "role": "HR_ADMIN",
-      "department_id": 1
+      "department_id": ""
     },
     "replace-recruiter-token": {
-      "user_id": 2,
-      "user_name": "Recruiter",
+      "user_id": "42",
+      "user_name": "Recruiter Test",
       "role": "RECRUITER",
-      "department_id": 1
+      "department_id": ""
     },
-    "replace-viewer-token": {
-      "user_id": 3,
-      "user_name": "Readonly Viewer",
+    "replace-readonly-token": {
+      "user_id": "99",
+      "user_name": "Readonly Test",
       "role": "READONLY_VIEWER",
-      "department_id": 1
+      "department_id": ""
     }
   }
 }

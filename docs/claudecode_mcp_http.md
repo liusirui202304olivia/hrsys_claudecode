@@ -23,6 +23,8 @@ HR_MCP_HOST=127.0.0.1
 HR_MCP_PORT=8765
 HR_DATA_BACKEND=mysql
 HR_AUTH_TOKENS_PATH=config/auth_tokens.json
+HR_AUDIT_PATH=runtime/audit/audit.jsonl
+HR_RESULT_PATH=runtime/results/screening_results.jsonl
 ```
 
 `HR_DATA_BACKEND` 必须显式配置。内网真实联调使用 `mysql`；`dump` 只允许作为本地测试 fixture 显式配置，服务不能在未配置时自动回退到 dump。接内网 MySQL 时由服务端 `.env` 配置数据库连接，Claude Code CLI 不保存数据库账号和密码。
@@ -180,6 +182,7 @@ X-Access-Reason: 联系候选人安排面试
 ```
 
 当前无 API Gateway。身份由 HR MCP 服务端根据 Bearer token 映射，客户端配置中不要出现数据库连接串、数据库用户名或数据库密码。测试 token 仅用于内网联调，正式上线前应替换为飞书 SSO 或公司统一用户接口。
+内网部署目录固定使用 `/workspace/devops/env_prod/service/ai/hr_mcp`；审计和推荐结果保存路径可通过服务端 `.env` 的 `HR_AUDIT_PATH`、`HR_RESULT_PATH` 指到该目录的 `logs/` 下。
 
 ## P0 验收问题
 

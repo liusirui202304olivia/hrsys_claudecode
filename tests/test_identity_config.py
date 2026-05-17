@@ -127,6 +127,8 @@ def test_config_center_exposes_intranet_security_config(tmp_path: Path):
     env_file = tmp_path / ".env"
     env_file.write_text(
         "HR_AUTH_TOKENS_PATH=config/custom_tokens.json\n"
+        "HR_AUDIT_PATH=logs/audit.jsonl\n"
+        "HR_RESULT_PATH=logs/results.jsonl\n"
         "HR_ALLOWED_IP_CIDRS=127.0.0.1/32,10.0.0.0/8\n"
         "HR_RATE_LIMIT_PER_MINUTE=10\n"
         "HR_MAX_REQUEST_BYTES=2048\n",
@@ -135,6 +137,8 @@ def test_config_center_exposes_intranet_security_config(tmp_path: Path):
     config = ConfigCenter(project_root=tmp_path, env_path=env_file)
 
     assert config.auth_tokens_path == tmp_path / "config" / "custom_tokens.json"
+    assert config.audit_path == tmp_path / "logs" / "audit.jsonl"
+    assert config.result_path == tmp_path / "logs" / "results.jsonl"
     assert config.allowed_ip_cidrs == ["127.0.0.1/32", "10.0.0.0/8"]
     assert config.rate_limit_per_minute == 10
     assert config.max_request_bytes == 2048

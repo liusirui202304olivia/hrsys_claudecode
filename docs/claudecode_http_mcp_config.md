@@ -2,6 +2,15 @@
 
 Claude Code CLI 直接连接中心化 HR MCP 服务，不使用 stdio-MCP。
 
+内网服务默认部署目录是 `/workspace/devops/env_prod/service/ai/hr_mcp`，HTTP 地址由部署机器和端口决定，例如：
+
+```bash
+export HR_MCP_URL=http://<服务机器IP>:8765
+export HR_MCP_TOKEN=<当前用户自己的token>
+```
+
+服务端实际读取 `/workspace/devops/env_prod/service/ai/hr_mcp/.env`。`HR_MCP_ENV_PATH` 只在服务启动脚本和 systemd unit 中使用，普通 Claude Code CLI 用户不需要配置它。
+
 ## 命令行添加
 
 ```bash
@@ -33,6 +42,7 @@ claude mcp add --transport http hr-mcp "$HR_MCP_URL/mcp" \
 - 用户身份由服务端 token 映射，不信任客户端自报的 `X-User-Role` 或 `X-User-Id`。
 - 高权限字段访问需要 `X-Access-Reason`，或工具参数中的 `access_reason`。
 - 测试 token 只用于内网联调，正式上线前应替换为飞书 SSO 或公司统一用户接口。
+- 不要把真实 token 写入共享 `.mcp.json`；优先用 `${HR_MCP_TOKEN}` 环境变量。
 
 ## 验收问题
 
