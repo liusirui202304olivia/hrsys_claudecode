@@ -7,6 +7,8 @@
 
 import json
 import time
+from datetime import date, datetime
+from decimal import Decimal
 from ipaddress import ip_address, ip_network
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from urllib.parse import parse_qs, urlparse
@@ -96,23 +98,23 @@ class HrMcpHttpApp:
         @api.get("/healthz")
         async def healthz():
             status, payload = owner.handle_request("GET", "/healthz", {}, b"")
-            return JSONResponse(payload, status_code=status)
+            return owner._json_response(payload, status)
 
         @api.get("/readyz")
         async def readyz():
             status, payload = owner.handle_request("GET", "/readyz", {}, b"")
-            return JSONResponse(payload, status_code=status)
+            return owner._json_response(payload, status)
 
         @api.get("/mcp/tools")
         async def tools(request: Request):
             status, payload = owner.handle_request("GET", "/mcp/tools", dict(request.headers.items()), b"", owner._request_client_ip(request))
-            return JSONResponse(payload, status_code=status)
+            return owner._json_response(payload, status)
 
         @api.post("/mcp")
         async def mcp(request: Request):
             body = await request.body()
             status, payload = owner.handle_request("POST", "/mcp", dict(request.headers.items()), body, owner._request_client_ip(request))
-            return JSONResponse(payload, status_code=status)
+            return owner._json_response(payload, status)
 
         @api.post("/internal/audit/query")
         async def audit_query(request: Request):
@@ -124,9 +126,32 @@ class HrMcpHttpApp:
                 body,
                 owner._request_client_ip(request),
             )
-            return JSONResponse(payload, status_code=status)
+            return owner._json_response(payload, status)
 
         return api
+
+    def _json_response(self, payload, status):
+        # type: (Dict[str, Any], int) -> JSONResponse
+        return JSONResponse(self._json_ready(payload), status_code=status)
+
+    def _json_ready(self, value):
+        # type: (Any) -> Any
+        if isinstance(value, dict):
+            return {str(key): self._json_ready(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_ready(item) for item in value]
+        if isinstance(value, datetime):
+            return value.isoformat(sep=" ")
+        if isinstance(value, date):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except UnicodeDecodeError:
+                return value.decode("utf-8", errors="replace")
+        return value
 
     def _identity(self, headers, route="/mcp", method="POST", payload=None, client_ip=None):
         # type: (Dict[str, str], str, str, Optional[Dict[str, Any]], Optional[str]) -> object

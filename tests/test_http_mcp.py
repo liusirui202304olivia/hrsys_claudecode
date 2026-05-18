@@ -6,6 +6,7 @@ Bearer token 鉴权、IP 白名单、限流、请求体大小限制和调试接�
 """
 
 import json
+from datetime import date
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -150,6 +151,25 @@ def test_fastapi_routes_delegate_to_same_http_mcp_logic(tmp_path: Path):
     assert health.json()["status"] == "ok"
     assert response.status_code == 200
     assert response.json()["result"]["tools"][0]["name"] == "search_candidate_safe_profiles"
+
+
+def test_fastapi_routes_serialize_database_date_values(tmp_path: Path):
+    app = make_app(tmp_path)
+
+    def date_payload(method, path, headers=None, body=None, client_ip=None):
+        return 200, {"result": {"rows": [{"candidate_id": 1, "proposed_join_date": date(2026, 6, 1)}]}}
+
+    app.handle_request = date_payload
+    client = TestClient(app.as_fastapi())
+
+    response = client.post(
+        "/mcp",
+        headers={"Authorization": "Bearer admin-token"},
+        json=tools_list_payload(),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result"]["rows"][0]["proposed_join_date"] == "2026-06-01"
 
 
 def test_mcp_requires_valid_bearer_token(tmp_path: Path):
