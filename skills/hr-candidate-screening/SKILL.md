@@ -68,6 +68,8 @@ description: Use when the user asks to screen, rank, recommend, or explain candi
 
    只从仍在招聘流程中的候选人里做第一轮推荐。`skills_any` 和 `experience_keywords_any` 是宽召回条件，命中任一关键词即可进入候选池；精筛和推荐判断由本 Skill 对照 Markdown 标准完成。
 
+   搜索和详情读取时必须请求并保留 `candidate_id` 和 `name`。推荐输出必须显示候选人姓名，不要只显示 ID。
+
 2. `candidate.position_id`、`candidate.position_name`、`position_jd` 是候选人的来源岗位或当前归属岗位，不是本次推荐的目标岗位。来源岗位不一致不能直接排除候选人。
 
 3. 必须主动考虑关联岗位和近似岗位候选人：如果候选人的技术栈、项目经历、行业经验、岗位 JD 与目标岗位标准强相关，即使原 `position_id` 属于其他岗位，也可以作为跨岗位推荐候选人。
@@ -146,6 +148,7 @@ description: Use when the user asks to screen, rank, recommend, or explain candi
 - 查询范围和召回数量
 - 推荐候选人列表
 - 每人的 `candidate_id`
+- 每人的候选人姓名 `name`
 - 目标岗位
 - 候选人来源岗位
 - 是否跨岗位推荐

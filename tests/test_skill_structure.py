@@ -169,6 +169,19 @@ def test_screening_skill_includes_boss_preference_rules() -> None:
         assert rule in content
 
 
+def test_screening_skill_requires_candidate_name_in_recommendation_output() -> None:
+    content = _read("skills/hr-candidate-screening/SKILL.md")
+
+    required_rules = [
+        "候选人姓名",
+        "`name`",
+        "每人的 `candidate_id`",
+    ]
+
+    for rule in required_rules:
+        assert rule in content
+
+
 def test_analysis_and_report_skills_split_active_and_rejected_candidate_pools() -> None:
     analysis = _read("skills/hr-talent-analysis/SKILL.md")
     report = _read("skills/hr-recruitment-report/SKILL.md")
