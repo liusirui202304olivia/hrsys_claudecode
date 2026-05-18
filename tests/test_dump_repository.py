@@ -35,11 +35,16 @@ CREATE TABLE `hr_candidate` (
   `proposed_join_date` date DEFAULT NULL COMMENT '拟入职时间',
   `project_experiences` json DEFAULT (_utf8mb4'[]') COMMENT '项目经历',
   `skills` json DEFAULT (_utf8mb4'[]') COMMENT '技术栈',
+  `is_focused` tinyint(1) DEFAULT '0' COMMENT '是否关注',
+  `match_point` int DEFAULT NULL COMMENT '匹配点',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间',
+  `manual_import` tinyint(1) DEFAULT '1' COMMENT '手工导入',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='候选人';
 INSERT INTO `hr_candidate` VALUES
-(1,10,20,'SCREEN_PROCESS',2,'张三','MALE','BACHELOR','BACHELOR','四川大学','计算机',5,'[{"company":"华为","position":"C++工程师"}]','2026-06-01','[{"project":"CPU模型","content":"负责gem5性能建模"}]','["C++","gem5"]'),
-(2,10,21,'REJECTED',3,'李四','FEMALE','BACHELOR','BACHELOR','电子科大','软件工程',1,'[]',NULL,'[]','["Java"]');
+(1,10,20,'SCREEN_PROCESS',2,'张三','MALE','BACHELOR','BACHELOR','四川大学','计算机',5,'[{"company":"华为","position":"C++工程师"}]','2026-06-01','[{"project":"CPU模型","content":"负责gem5性能建模"}]','["C++","gem5"]',1,90,'2026-05-01 10:00:00','2026-05-02 10:00:00',1),
+(2,10,21,'REJECTED',3,'李四','FEMALE','BACHELOR','BACHELOR','电子科大','软件工程',1,'[]',NULL,'[]','["Java"]',0,40,'2026-04-01 10:00:00','2026-04-02 10:00:00',0);
 
 CREATE TABLE `hr_position` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -171,6 +176,24 @@ def test_dump_repository_filters_status_keyword_and_work_years(tmp_path: Path):
     assert [row["name"] for row in candidates] == ["张三"]
 
 
+def test_dump_repository_filters_high_frequency_business_dimensions(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    by_name = repo.search_candidates({"name_query": "张"}, page_size=10)
+    by_join_date = repo.search_candidates({"proposed_join_date_from": "2026-06-01", "proposed_join_date_to": "2026-06-30"}, page_size=10)
+    by_created = repo.search_candidates({"create_time_from": "2026-05-01", "create_time_to": "2026-05-31"}, page_size=10)
+    by_school = repo.search_candidates({"college_query": "四川", "major_query": "计算机"}, page_size=10)
+    by_flags = repo.search_candidates({"gender": "MALE", "max_work_years": 6, "is_focused": True, "manual_import": True, "match_point_min": 80}, page_size=10)
+    upcoming = repo.search_candidates({"candidate_pool": "joining", "proposed_join_date_from": "2026-06-01", "proposed_join_date_to": "2026-06-30"}, page_size=10)
+
+    assert [row["name"] for row in by_name["items"]] == ["张三"]
+    assert [row["name"] for row in by_join_date["items"]] == ["张三"]
+    assert [row["name"] for row in by_created["items"]] == ["张三"]
+    assert [row["name"] for row in by_school["items"]] == ["张三"]
+    assert [row["name"] for row in by_flags["items"]] == ["张三"]
+    assert [row["name"] for row in upcoming["items"]] == ["张三"]
+
+
 def test_dump_repository_position_query_matches_position_name_or_jd(tmp_path: Path):
     repo = DumpTalentRepository(write_dump(tmp_path))
 
@@ -188,6 +211,23 @@ def test_dump_repository_computes_position_distribution(tmp_path: Path):
     assert distribution == [
         {"position_name": "应用软件开发工程师", "count": 1},
         {"position_name": "芯片建模工程师", "count": 1},
+    ]
+
+
+def test_dump_repository_computes_extended_distributions(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    assert repo.distribution("gender", {}) == [
+        {"gender": "FEMALE", "count": 1},
+        {"gender": "MALE", "count": 1},
+    ]
+    assert repo.distribution("proposed_join_month", {}) == [
+        {"proposed_join_month": "2026-06", "count": 1},
+        {"proposed_join_month": "UNKNOWN", "count": 1},
+    ]
+    assert repo.distribution("work_years_band", {}) == [
+        {"work_years_band": "0-2", "count": 1},
+        {"work_years_band": "3-5", "count": 1},
     ]
 
 
@@ -220,12 +260,14 @@ def test_dump_repository_filters_candidate_pools_and_status_update_dates(tmp_pat
     old_rejected = repo.search_candidates({"candidate_pool": "old_rejected", "rejected_before_days": 180}, page_size=10)
     recent_rejected = repo.search_candidates({"candidate_pool": "recent_rejected", "rejected_before_days": 180}, page_size=10)
     hired = repo.search_candidates({"candidate_pool": "hired"}, page_size=10)
+    joining = repo.search_candidates({"candidate_pool": "joining"}, page_size=10)
     stale = repo.search_candidates({"status_updated_before": "2025-12-01"}, page_size=10)
 
     assert [row["name"] for row in active["items"]] == ["流程中候选人"]
     assert [row["name"] for row in old_rejected["items"]] == ["历史拒绝候选人"]
     assert [row["name"] for row in recent_rejected["items"]] == ["近期拒绝候选人"]
     assert [row["name"] for row in hired["items"]] == ["已入职候选人"]
+    assert [row["name"] for row in joining["items"]] == []
     assert [row["name"] for row in stale["items"]] == ["历史拒绝候选人"]
 
 
@@ -372,6 +414,83 @@ def test_mysql_repository_position_query_matches_position_name_or_jd():
     assert repo.params_list[0][:2] == ["%系统软件%", "%系统软件%"]
 
 
+def test_mysql_repository_filters_high_frequency_business_dimensions():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+            self.params_list = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            self.params_list.append(params)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 1}]
+            return [{"candidate_id": 1, "update_time": "2026-01-01 00:00:00"}]
+
+    repo = RecordingRepo()
+
+    repo.search_candidates(
+        {
+            "name_query": "张",
+            "proposed_join_date_from": "2026-05-01",
+            "proposed_join_date_to": "2026-05-31",
+            "create_time_from": "2026-04-01",
+            "create_time_to": "2026-04-30",
+            "update_time_from": "2026-03-01",
+            "update_time_to": "2026-03-31",
+            "source_query": "内推",
+            "degree": "BACHELOR",
+            "college_query": "四川",
+            "major_query": "计算机",
+            "gender": "MALE",
+            "max_work_years": 8,
+            "is_focused": True,
+            "manual_import": False,
+            "match_point_min": 60,
+            "proposed_department_id": 7,
+            "hr_id": 2,
+        },
+        page_size=10,
+    )
+    search_sql = repo.sqls[0]
+    params = repo.params_list[0]
+
+    assert "v.name LIKE %s" in search_sql
+    assert "v.proposed_join_date >= %s" in search_sql
+    assert "v.proposed_join_date <= %s" in search_sql
+    assert "v.create_time >= %s" in search_sql
+    assert "v.update_time <= %s" in search_sql
+    assert "(v.source_name LIKE %s OR v.source_full_name LIKE %s)" in search_sql
+    assert "v.college LIKE %s" in search_sql
+    assert "v.major LIKE %s" in search_sql
+    assert "v.work_years <= %s" in search_sql
+    assert "v.is_focused = %s" in search_sql
+    assert "v.manual_import = %s" in search_sql
+    assert "v.match_point >= %s" in search_sql
+    assert "%张%" in params
+
+
+def test_mysql_repository_joining_pool_excludes_rejected_and_hired():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 1}]
+            return [{"candidate_id": 1, "update_time": "2026-01-01 00:00:00"}]
+
+    repo = RecordingRepo()
+
+    repo.search_candidates({"candidate_pool": "joining"}, page_size=10)
+
+    assert "v.proposed_join_date IS NOT NULL" in repo.sqls[0]
+    assert "v.status NOT IN ('REJECTED', 'HIRED')" in repo.sqls[0]
+
+
 def test_mysql_repository_skill_and_experience_keywords_use_any_or_semantics():
     class RecordingRepo(MySQLTalentRepository):
         def __init__(self):
@@ -429,6 +548,26 @@ def test_mysql_repository_candidate_pool_filters_are_controlled_sql_conditions()
     assert "v.update_time >= %s" in combined_sql
     assert "REJECTED" in combined_params
     assert "HIRED" in combined_params
+
+
+def test_mysql_repository_generic_distribution_uses_whitelisted_expressions():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            return [{"proposed_join_month": "2026-06", "count": 2}]
+
+    repo = RecordingRepo()
+
+    result = repo.distribution("proposed_join_month", {})
+
+    assert result == [{"proposed_join_month": "2026-06", "count": 2}]
+    assert "DATE_FORMAT(v.proposed_join_date, '%Y-%m')" in repo.sqls[-1]
+    with pytest.raises(ValueError):
+        repo.distribution("free_sql", {})
 
 
 def test_mysql_repository_rejects_pool_status_conflict_and_bad_dates():

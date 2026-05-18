@@ -24,7 +24,7 @@
 
 ## 数据访问
 
-- [ ] `mysql_repository.py` 只接受受控 filter，不暴露自由 SQL。
+- [ ] `mysql_repository.py` 的常规路径只接受受控 filter；开放问题只能通过 `query_hr_safe_sql` 的安全 SQL 沙箱查询安全 view。
 - [ ] `search_candidate_safe_profiles` 只限制单次 `page_size`，返回 `total_count`、`has_more`、`next_cursor`，不限制参与查询的候选人总量。
 - [ ] `query_talent_pool_facts` 使用 repository 的 `COUNT(*)` / `GROUP BY` 聚合，不通过拉取固定条数候选人做 Python 统计。
 - [ ] `get_candidate_safe_detail_batch` 超过单次 50 个 ID 时拒绝请求，不静默截断。
@@ -45,10 +45,12 @@
 
 ## MCP Tools
 
-- [ ] MCP `tools/list` 只返回 4 个安全数据工具。
+- [ ] MCP `tools/list` 返回 6 个安全数据工具。
 - [ ] `search_candidate_safe_profiles` 返回安全候选人画像。
 - [ ] `get_candidate_safe_detail_batch` 批量读取安全详情且限制批量大小。
 - [ ] `query_talent_pool_facts` 只返回事实统计和聚合分布。
+- [ ] `query_hr_safe_sql` 只允许单条 `SELECT`，只查询安全 view，强制 limit，并审计成功和失败。
+- [ ] `describe_hr_safe_schema` 返回安全 SQL 可查询字段，普通角色看不到联系方式字段。
 - [ ] `save_screening_result` 只保存 Agent 生成的 `task_id`、`standard_ref`、`candidate_id`、`recommend_reason`、`risk_points`。
 - [ ] 后端不暴露 `get_screening_policy`、`analyze_talent_pool`、`generate_recruitment_report`。
 

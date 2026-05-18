@@ -8,28 +8,64 @@
 import base64
 import json
 import re
+import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
 ALLOWED_CANDIDATE_FILTERS = {
+    "name_query",
     "position_query",
     "position_name",
     "position_id",
+    "source_query",
+    "source_id",
+    "proposed_department_id",
+    "hr_id",
     "candidate_status",
     "status",
     "min_work_years",
+    "max_work_years",
+    "gender",
+    "degree",
+    "college_query",
+    "major_query",
+    "is_focused",
+    "manual_import",
+    "match_point_min",
     "skills_any",
     "experience_keywords_any",
     "candidate_pool",
     "rejected_before_days",
     "status_updated_before",
     "status_updated_after",
+    "proposed_join_date_from",
+    "proposed_join_date_to",
+    "create_time_from",
+    "create_time_to",
+    "update_time_from",
+    "update_time_to",
 }
 
-VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
+VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired", "joining"}
 DEFAULT_REJECTED_BEFORE_DAYS = 180
+ALLOWED_DISTRIBUTIONS = {
+    "position_name",
+    "status",
+    "source_name",
+    "candidate_pool",
+    "proposed_department_id",
+    "hr_id",
+    "degree",
+    "college",
+    "major",
+    "gender",
+    "work_years_band",
+    "proposed_join_month",
+    "create_month",
+    "update_month",
+}
 
 
 class DumpTalentRepository:
@@ -124,6 +160,41 @@ class DumpTalentRepository:
             {"source_name": key, "count": count}
             for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         ]
+
+    def distribution(self, dimension: str, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        if dimension not in ALLOWED_DISTRIBUTIONS:
+            raise ValueError("Unsupported distribution dimension: " + str(dimension))
+        counts: Dict[str, int] = {}
+        for row in self._aggregate_rows(filters or {}, identity_scope):
+            key = self._distribution_value(row, dimension, filters or {})
+            counts[key] = counts.get(key, 0) + 1
+        return [
+            {dimension: key, "count": count}
+            for key, count in sorted(counts.items(), key=lambda item: (-item[1], str(item[0])))
+        ]
+
+    def execute_safe_sql(self, sql: str) -> List[Dict[str, Any]]:
+        rows = self._joined_candidates()
+        columns = sorted({key for row in rows for key in row.keys()})
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.create_function("DATE_FORMAT", 2, self._sqlite_date_format)
+            column_sql = ", ".join('"%s" TEXT' % column for column in columns)
+            connection.execute('CREATE TABLE v_candidate_agent_safe (%s)' % column_sql)
+            connection.execute('CREATE TABLE v_candidate_agent_privileged (%s)' % column_sql)
+            insert_sql = (
+                'INSERT INTO v_candidate_agent_safe (%s) VALUES (%s)' %
+                (", ".join('"%s"' % column for column in columns), ", ".join(["?"] * len(columns)))
+            )
+            for row in rows:
+                values = [self._sqlite_value(row.get(column)) for column in columns]
+                connection.execute(insert_sql, values)
+                connection.execute(insert_sql.replace("v_candidate_agent_safe", "v_candidate_agent_privileged"), values)
+            cursor = connection.execute(sql)
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            connection.close()
 
     def _validate_filters(self, filters: Dict[str, Any]) -> None:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
@@ -322,6 +393,10 @@ class DumpTalentRepository:
             return False
         if not self._status_update_date_matches(row, filters):
             return False
+        if not self._date_range_matches(row, filters):
+            return False
+        if filters.get("name_query") and str(filters["name_query"]).lower() not in str(row.get("name") or "").lower():
+            return False
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query:
             position_text = json.dumps(
@@ -333,6 +408,16 @@ class DumpTalentRepository:
                 return False
         if filters.get("position_id") is not None and row.get("position_id") != filters.get("position_id"):
             return False
+        if filters.get("source_id") is not None and row.get("source_id") != filters.get("source_id"):
+            return False
+        if filters.get("proposed_department_id") is not None and row.get("proposed_department_id") != filters.get("proposed_department_id"):
+            return False
+        if filters.get("hr_id") is not None and row.get("hr_id") != filters.get("hr_id"):
+            return False
+        if filters.get("source_query"):
+            source_text = json.dumps([row.get("source_name"), row.get("source_full_name")], ensure_ascii=False, default=str).lower()
+            if str(filters["source_query"]).lower() not in source_text:
+                return False
         statuses = filters.get("candidate_status", filters.get("status"))
         if statuses:
             status_set = {statuses} if isinstance(statuses, str) else set(statuses)
@@ -341,6 +426,23 @@ class DumpTalentRepository:
         if filters.get("min_work_years") is not None:
             work_years = row.get("work_years")
             if work_years is None or int(work_years) < int(filters["min_work_years"]):
+                return False
+        if filters.get("max_work_years") is not None:
+            work_years = row.get("work_years")
+            if work_years is None or int(work_years) > int(filters["max_work_years"]):
+                return False
+        for key in ["gender", "degree"]:
+            if filters.get(key) is not None and row.get(key) != filters.get(key):
+                return False
+        for key, field_name in [("college_query", "college"), ("major_query", "major")]:
+            if filters.get(key) and str(filters[key]).lower() not in str(row.get(field_name) or "").lower():
+                return False
+        for key in ["is_focused", "manual_import"]:
+            if filters.get(key) is not None and bool(row.get(key)) != bool(filters.get(key)):
+                return False
+        if filters.get("match_point_min") is not None:
+            match_point = row.get("match_point")
+            if match_point is None or int(match_point) < int(filters["match_point_min"]):
                 return False
         keywords = list(filters.get("skills_any") or []) + list(filters.get("experience_keywords_any") or [])
         if keywords:
@@ -352,12 +454,17 @@ class DumpTalentRepository:
     def _validate_candidate_pool_filters(self, filters: Dict[str, Any]) -> None:
         candidate_pool = filters.get("candidate_pool")
         if candidate_pool is not None and candidate_pool not in VALID_CANDIDATE_POOLS:
-            raise ValueError("candidate_pool must be one of active, old_rejected, recent_rejected, hired")
+            raise ValueError("candidate_pool must be one of active, old_rejected, recent_rejected, hired, joining")
         if candidate_pool is not None and (filters.get("status") is not None or filters.get("candidate_status") is not None):
             raise ValueError("candidate_pool cannot be combined with status or candidate_status")
         if "rejected_before_days" in filters:
             self._validate_positive_integer(filters.get("rejected_before_days"), "rejected_before_days")
-        for key in ["status_updated_before", "status_updated_after"]:
+        for key in [
+            "status_updated_before", "status_updated_after",
+            "proposed_join_date_from", "proposed_join_date_to",
+            "create_time_from", "create_time_to",
+            "update_time_from", "update_time_to",
+        ]:
             if key in filters and filters.get(key) is not None:
                 self._parse_yyyy_mm_dd(filters.get(key), key)
 
@@ -368,6 +475,8 @@ class DumpTalentRepository:
         status = row.get("status")
         if candidate_pool == "active":
             return status not in {"REJECTED", "HIRED"}
+        if candidate_pool == "joining":
+            return bool(row.get("proposed_join_date")) and status not in {"REJECTED", "HIRED"}
         if candidate_pool == "hired":
             return status == "HIRED"
         if status != "REJECTED":
@@ -396,6 +505,27 @@ class DumpTalentRepository:
                 return False
         return True
 
+    def _date_range_matches(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        for prefix, field_name in [
+            ("proposed_join_date", "proposed_join_date"),
+            ("create_time", "create_time"),
+            ("update_time", "update_time"),
+        ]:
+            start_key = prefix + "_from"
+            end_key = prefix + "_to"
+            if filters.get(start_key) is None and filters.get(end_key) is None:
+                continue
+            value = self._row_datetime(row, field_name)
+            if filters.get(start_key) is not None:
+                start = self._parse_yyyy_mm_dd(filters[start_key], start_key)
+                if value is None or value < start:
+                    return False
+            if filters.get(end_key) is not None:
+                end = self._parse_yyyy_mm_dd(filters[end_key], end_key).replace(hour=23, minute=59, second=59)
+                if value is None or value > end:
+                    return False
+        return True
+
     def _rejected_cutoff(self, filters: Dict[str, Any]) -> datetime:
         days = filters.get("rejected_before_days", DEFAULT_REJECTED_BEFORE_DAYS)
         days = self._validate_positive_integer(days, "rejected_before_days")
@@ -403,7 +533,10 @@ class DumpTalentRepository:
         return datetime(cutoff_date.year, cutoff_date.month, cutoff_date.day, 23, 59, 59)
 
     def _row_update_time(self, row: Dict[str, Any]) -> Optional[datetime]:
-        value = row.get("update_time")
+        return self._row_datetime(row, "update_time")
+
+    def _row_datetime(self, row: Dict[str, Any], field_name: str) -> Optional[datetime]:
+        value = row.get(field_name)
         if value in (None, ""):
             return None
         if isinstance(value, datetime):
@@ -416,7 +549,7 @@ class DumpTalentRepository:
                 return datetime.strptime(text[:length], fmt)
             except ValueError:
                 continue
-        raise ValueError("update_time must be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+        raise ValueError(field_name + " must be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
 
     def _parse_yyyy_mm_dd(self, value: Any, name: str) -> datetime:
         if not isinstance(value, str):
@@ -443,3 +576,57 @@ class DumpTalentRepository:
             row.get("position_jd"), row.get("experiences"), row.get("project_experiences"), row.get("skills"),
         ]
         return json.dumps(fields, ensure_ascii=False, default=str).lower()
+
+    def _distribution_value(self, row: Dict[str, Any], dimension: str, filters: Dict[str, Any]) -> str:
+        if dimension == "work_years_band":
+            value = row.get("work_years")
+            if value is None:
+                return "UNKNOWN"
+            years = int(value)
+            if years <= 2:
+                return "0-2"
+            if years <= 5:
+                return "3-5"
+            if years <= 10:
+                return "6-10"
+            return "10+"
+        if dimension == "proposed_join_month":
+            return self._month_value(row.get("proposed_join_date"))
+        if dimension == "create_month":
+            return self._month_value(row.get("create_time"))
+        if dimension == "update_month":
+            return self._month_value(row.get("update_time"))
+        if dimension == "candidate_pool":
+            status = row.get("status")
+            if status == "HIRED":
+                return "hired"
+            if status == "REJECTED":
+                update_time = self._row_update_time(row)
+                return "old_rejected" if update_time and update_time <= self._rejected_cutoff(filters) else "recent_rejected"
+            if row.get("proposed_join_date"):
+                return "joining"
+            return "active"
+        value = row.get(dimension)
+        return str(value) if value not in (None, "") else "UNKNOWN"
+
+    def _month_value(self, value: Any) -> str:
+        if value in (None, ""):
+            return "UNKNOWN"
+        return str(value)[:7]
+
+    def _sqlite_value(self, value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat(sep=" ") if isinstance(value, datetime) else value.isoformat()
+        return value
+
+    def _sqlite_date_format(self, value: Any, fmt: str) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        text = str(value)
+        if fmt == "%Y-%m":
+            return text[:7]
+        if fmt == "%Y":
+            return text[:4]
+        return text

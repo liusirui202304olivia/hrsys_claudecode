@@ -1,7 +1,19 @@
 ---
 name: hr-candidate-screening
+safe_sql_guidance: query_hr_safe_sql, describe_hr_safe_schema, 安全 SQL, 业务判断
 description: Use when the user asks to screen, rank, recommend, or explain candidates for the supported HR recruiting positions in this project.
 ---
+
+## 安全 SQL 宽召回补充
+
+当 `search_candidate_safe_profiles` 的固定过滤不足以表达用户的筛选意图时，可以调用 `describe_hr_safe_schema` 查看安全字段，再用 `query_hr_safe_sql` 从 `v_candidate_agent_safe` 做宽召回。安全 SQL 只负责取数；业务判断、岗位标准匹配、老板偏好、推荐等级、风险点和面试验证建议仍由本 Skill 完成。
+
+使用安全 SQL 时必须遵守：
+
+- 不查原始表，不查联系方式字段。
+- 不把候选人的来源岗位当成目标岗位；目标岗位来自用户意图和 Markdown 标准。
+- 推荐输出仍必须包含 `candidate_id`、候选人姓名 `name`、目标岗位、来源岗位、是否跨岗位推荐、匹配证据、风险点和面试验证建议。
+- 对“准备入职”相关问题，默认按 `proposed_join_date`，并排除 `REJECTED`、`HIRED`。
 
 # Candidate Screening Skill 候选人筛选推荐
 

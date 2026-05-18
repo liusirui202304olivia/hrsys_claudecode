@@ -87,6 +87,10 @@ class FakeRepository:
         self.distribution_calls.append(("source_name", identity_scope))
         return self._distribution("source_name", identity_scope)
 
+    def distribution(self, dimension, filters, identity_scope=None):
+        self.distribution_calls.append((dimension, identity_scope))
+        return self._distribution(dimension, identity_scope)
+
     def _distribution(self, field_name, identity_scope):
         counts = {}
         for row in self._apply_scope(self.records, identity_scope):
@@ -205,6 +209,22 @@ def test_query_facts_returns_aggregate_without_contact_fields():
     assert "mobile" not in str(result)
     assert "email" not in str(result)
     assert {row["position_name"] for row in result["position_distribution"]} == {"芯片建模工程师", "应用软件开发工程师"}
+
+
+def test_query_facts_supports_extended_group_by_dimensions():
+    _, query = make_services()
+    identity = IdentityContext(user_id=1, role="HR_ADMIN")
+
+    result = query.query_facts(
+        metrics=["count"],
+        filters={"proposed_join_date_from": "2026-06-01", "proposed_join_date_to": "2026-06-30"},
+        group_by=["gender", "work_years_band", "proposed_join_month"],
+        identity=identity,
+    )
+
+    assert result["gender_distribution"]
+    assert result["work_years_band_distribution"]
+    assert result["proposed_join_month_distribution"]
 
 
 

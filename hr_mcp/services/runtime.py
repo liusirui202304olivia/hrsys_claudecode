@@ -19,6 +19,7 @@ from hr_mcp.services.candidate_safe_view_service import CandidateSafeViewService
 from hr_mcp.services.config_center import ConfigCenter
 from hr_mcp.services.permission_service import PermissionService
 from hr_mcp.services.screening_result_store import ScreeningResultStore
+from hr_mcp.services.safe_sql_service import SafeSqlService
 from hr_mcp.services.talent_pool_query_service import TalentPoolQueryService
 from hr_mcp.services.tool_registry import ToolRegistry
 from hr_mcp.services.tool_router import ToolRouter
@@ -62,12 +63,14 @@ def build_runtime(config: Optional[ConfigCenter] = None) -> RuntimeContainer:
     safe_view_service = CandidateSafeViewService(field_policy, permission_service)
     retrieval_service = CandidateRetrievalService(repository, safe_view_service)
     talent_query_service = TalentPoolQueryService(repository, safe_view_service)
+    safe_sql_service = SafeSqlService(repository, field_policy)
     result_store = ScreeningResultStore(config.result_path)
     audit_service = AuditTraceService(config.audit_path)
     router = ToolRouter(
         registry=ToolRegistry(),
         retrieval_service=retrieval_service,
         talent_query_service=talent_query_service,
+        safe_sql_service=safe_sql_service,
         result_store=result_store,
         audit_service=audit_service,
     )

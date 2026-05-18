@@ -24,20 +24,39 @@ class ToolRouter:
     SAVE_ALLOWED_ROLES = {"HR_ADMIN", "RECRUITER", "DEPARTMENT_MANAGER", "INTERVIEWER"}
     MAX_SEARCH_PAGE_SIZE = 300
     MAX_DETAIL_BATCH = 50
-    VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
+    VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired", "joining"}
     CANDIDATE_FILTER_KEYS = {
         "position_query",
         "position_name",
         "position_id",
+        "name_query",
+        "source_query",
+        "source_id",
+        "proposed_department_id",
+        "hr_id",
         "candidate_status",
         "status",
         "min_work_years",
+        "max_work_years",
+        "gender",
+        "degree",
+        "college_query",
+        "major_query",
+        "is_focused",
+        "manual_import",
+        "match_point_min",
         "skills_any",
         "experience_keywords_any",
         "candidate_pool",
         "rejected_before_days",
         "status_updated_before",
         "status_updated_after",
+        "proposed_join_date_from",
+        "proposed_join_date_to",
+        "create_time_from",
+        "create_time_to",
+        "update_time_from",
+        "update_time_to",
     }
 
     def __init__(
@@ -45,12 +64,14 @@ class ToolRouter:
         registry: ToolRegistry,
         retrieval_service,
         talent_query_service,
+        safe_sql_service,
         result_store,
         audit_service,
     ):
         self.registry = registry
         self.retrieval_service = retrieval_service
         self.talent_query_service = talent_query_service
+        self.safe_sql_service = safe_sql_service
         self.result_store = result_store
         self.audit_service = audit_service
 
@@ -64,6 +85,7 @@ class ToolRouter:
             exc = InvalidToolArgumentsError("Tool arguments must be an object")
             self.record_failed_call(tool_name, {}, identity, exc)
             raise exc
+        call_identity = identity
         try:
             if not self.registry.has_tool(tool_name):
                 raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
@@ -92,6 +114,12 @@ class ToolRouter:
                         identity=identity,
                     )
                 }
+            elif tool_name == "query_hr_safe_sql":
+                call_identity = self._identity_with_access_reason(identity, arguments.get("access_reason"))
+                result = self.safe_sql_service.query(arguments.get("sql", ""), call_identity)
+                result["purpose"] = arguments.get("purpose", "")
+            elif tool_name == "describe_hr_safe_schema":
+                result = self.safe_sql_service.describe_schema(identity)
             elif tool_name == "save_screening_result":
                 self._assert_can_save(identity)
                 result = {
@@ -105,10 +133,10 @@ class ToolRouter:
             else:
                 raise UnknownToolError(f"Unknown MCP tool: {tool_name}")
         except Exception as exc:
-            self.record_failed_call(tool_name, arguments, identity, exc)
+            self.record_failed_call(tool_name, arguments, call_identity, exc)
             raise
 
-        self._audit(tool_name, arguments, result, identity)
+        self._audit(tool_name, arguments, result, call_identity)
         return result
 
     def record_failed_call(self, tool_name: str, arguments: Dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
@@ -127,6 +155,22 @@ class ToolRouter:
     def _assert_can_save(self, identity: IdentityContext) -> None:
         if identity.role not in self.SAVE_ALLOWED_ROLES:
             raise PermissionError("save_screening_result requires HR_ADMIN, RECRUITER, DEPARTMENT_MANAGER or INTERVIEWER role")
+
+    def _identity_with_access_reason(self, identity: IdentityContext, access_reason: Any) -> IdentityContext:
+        if identity.access_reason or not access_reason:
+            return identity
+        return IdentityContext(
+            user_id=identity.user_id,
+            user_name=identity.user_name,
+            role=identity.role,
+            department_id=identity.department_id,
+            client_id=identity.client_id,
+            request_id=identity.request_id,
+            trace_id=identity.trace_id,
+            access_reason=access_reason,
+            mock_gateway_identity=identity.mock_gateway_identity,
+            extra=identity.extra,
+        )
 
     def _validate_arguments(self, tool_name: str, arguments: Dict[str, Any]) -> None:
         if tool_name == "search_candidate_safe_profiles":
@@ -148,6 +192,16 @@ class ToolRouter:
             self._validate_candidate_filters(arguments.get("filters") or {})
             self._validate_optional_string_list(arguments, "metrics")
             self._validate_optional_string_list(arguments, "group_by")
+        elif tool_name == "query_hr_safe_sql":
+            if not isinstance(arguments.get("sql"), str) or not arguments.get("sql").strip():
+                raise InvalidToolArgumentsError("query_hr_safe_sql.sql must be a non-empty string")
+            if not isinstance(arguments.get("purpose"), str) or not arguments.get("purpose").strip():
+                raise InvalidToolArgumentsError("query_hr_safe_sql.purpose must be a non-empty string")
+            if "access_reason" in arguments and arguments.get("access_reason") is not None and not isinstance(arguments.get("access_reason"), str):
+                raise InvalidToolArgumentsError("query_hr_safe_sql.access_reason must be a string")
+        elif tool_name == "describe_hr_safe_schema":
+            if arguments:
+                raise InvalidToolArgumentsError("describe_hr_safe_schema does not accept arguments")
         elif tool_name == "save_screening_result":
             if not isinstance(arguments.get("task_id"), str) or not arguments.get("task_id").strip():
                 raise InvalidToolArgumentsError("save_screening_result.task_id must be a non-empty string")
@@ -190,18 +244,33 @@ class ToolRouter:
             raise InvalidToolArgumentsError(f"Unsupported candidate filters: {', '.join(unknown)}")
         candidate_pool = filters.get("candidate_pool")
         if candidate_pool is not None and candidate_pool not in self.VALID_CANDIDATE_POOLS:
-            raise InvalidToolArgumentsError("filters.candidate_pool must be one of active, old_rejected, recent_rejected, hired")
+            raise InvalidToolArgumentsError("filters.candidate_pool must be one of active, old_rejected, recent_rejected, hired, joining")
         if candidate_pool is not None and (filters.get("status") is not None or filters.get("candidate_status") is not None):
             raise InvalidToolArgumentsError("filters.candidate_pool cannot be combined with status or candidate_status")
         if "rejected_before_days" in filters:
             self._validate_positive_integer_filter(filters.get("rejected_before_days"), "rejected_before_days")
-        for name in ["status_updated_before", "status_updated_after"]:
+        for name in [
+            "status_updated_before", "status_updated_after",
+            "proposed_join_date_from", "proposed_join_date_to",
+            "create_time_from", "create_time_to",
+            "update_time_from", "update_time_to",
+        ]:
             if name in filters and filters.get(name) is not None:
                 self._validate_yyyy_mm_dd(filters.get(name), name)
+        for name in ["position_id", "source_id", "proposed_department_id", "hr_id", "min_work_years", "max_work_years", "match_point_min"]:
+            if name in filters and filters.get(name) is not None:
+                self._validate_non_boolean_integer_filter(filters.get(name), name)
+        for name in ["is_focused", "manual_import"]:
+            if name in filters and filters.get(name) is not None and not isinstance(filters.get(name), bool):
+                raise InvalidToolArgumentsError(f"filters.{name} must be a boolean")
 
     def _validate_positive_integer_filter(self, value: Any, name: str) -> None:
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise InvalidToolArgumentsError(f"filters.{name} must be a positive integer")
+
+    def _validate_non_boolean_integer_filter(self, value: Any, name: str) -> None:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise InvalidToolArgumentsError(f"filters.{name} must be an integer")
 
     def _validate_yyyy_mm_dd(self, value: Any, name: str) -> None:
         if not isinstance(value, str):
@@ -215,7 +284,7 @@ class ToolRouter:
         if not self.audit_service:
             return
         candidate_ids = self._candidate_ids(result)
-        fields = arguments.get("return_fields") or []
+        fields = arguments.get("return_fields") or result.get("fields") or []
         self.audit_service.record_tool_call(
             tool_name=tool_name,
             arguments=arguments,
@@ -240,6 +309,10 @@ class ToolRouter:
             return f"returned {len(result.get('candidates') or [])} candidates"
         if "facts" in result:
             return "returned talent pool facts"
+        if "rows" in result:
+            return f"returned {len(result.get('rows') or [])} safe sql rows"
+        if "views" in result:
+            return "returned safe sql schema"
         if "saved" in result:
             return "saved screening result"
         return "ok"

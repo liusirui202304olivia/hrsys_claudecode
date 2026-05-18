@@ -1,7 +1,14 @@
 ---
 name: hr-talent-analysis
+safe_sql_guidance: query_hr_safe_sql, describe_hr_safe_schema, 安全 SQL, 业务判断
 description: Use when the user asks for recruiting data analysis, candidate pool structure, supply gaps, process bottlenecks, or source quality insights.
 ---
+
+## 安全 SQL 分析补充
+
+分析问题可以优先使用 `query_talent_pool_facts`。当用户从时间、部门、岗位、来源、趋势、候选人结构等多个维度组合提问时，可以先调用 `describe_hr_safe_schema`，再用 `query_hr_safe_sql` 对 `v_candidate_agent_safe` 做灵活聚合。安全 SQL 只返回事实数据；业务判断、趋势解释、风险识别和行动建议仍由本 Skill 完成。
+
+涉及“准备入职”的分析默认使用 `proposed_join_date`，并排除 `REJECTED`、`HIRED`；涉及“最近变化”时要说明使用 `create_time` 还是 `update_time`。
 
 # Talent Analysis Skill 招聘数据分析
 

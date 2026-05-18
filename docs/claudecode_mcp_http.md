@@ -38,11 +38,13 @@ HR_RESULT_PATH=runtime/results/screening_results.jsonl
 
 ## MCP Tools
 
-后端只暴露 4 个安全数据工具：
+后端只暴露 6 个安全数据工具：
 
 - `search_candidate_safe_profiles`：受控召回候选人安全画像。
 - `get_candidate_safe_detail_batch`：按候选人 ID 批量读取安全详情。
 - `query_talent_pool_facts`：返回 count、岗位分布、状态分布、来源分布等事实数据。
+- `query_hr_safe_sql`：执行经过后端沙箱校验的只读安全 SQL，只能查询安全 view。
+- `describe_hr_safe_schema`：返回安全 SQL 可查询的 view、字段和权限说明。
 - `save_screening_result`：保存 Claude Code Agent 已生成的推荐结果。
 
 后端不提供以下业务推理工具：
@@ -51,6 +53,8 @@ HR_RESULT_PATH=runtime/results/screening_results.jsonl
 - 候选人筛选推荐：由 Claude Code Agent + Skill 完成。
 - 自然语言问答：由 Claude Code Agent + Skill 调用数据工具后组织回答。
 - 招聘分析和报告生成：由 Claude Code Agent + Skill 完成。
+
+开放式问题可以使用 `query_hr_safe_sql`，但它仍然属于后端安全数据能力，不是自由直连 MySQL。SQL 必须是单条 `SELECT`，只能查询 `v_candidate_agent_safe`；高权限联系方式只能由 `HR_ADMIN` 携带访问理由查询 `v_candidate_agent_privileged`。后端会校验 SQL、字段、view、limit 和权限，并写入审计。
 
 ## 项目内 Skill 结构
 
@@ -131,6 +135,37 @@ skills/hr-recruitment-report/SKILL.md         Recruitment Report Skill 招聘汇
 }
 ```
 
+开放式安全 SQL：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "query_hr_safe_sql",
+    "arguments": {
+      "purpose": "查询最近一个月准备入职候选人",
+      "sql": "SELECT candidate_id, name, status, proposed_join_date, position_name FROM v_candidate_agent_safe WHERE proposed_join_date BETWEEN '2026-05-01' AND '2026-05-31' AND status NOT IN ('REJECTED', 'HIRED') ORDER BY proposed_join_date ASC LIMIT 100"
+    }
+  }
+}
+```
+
+安全 schema 查询：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "describe_hr_safe_schema",
+    "arguments": {}
+  }
+}
+```
+
 保存 Agent 推荐结果：
 
 ```json
@@ -186,9 +221,11 @@ X-Access-Reason: 联系候选人安排面试
 
 ## P0 验收问题
 
-这些问题由 Claude Code Skill 完成推理，并调用后端 4 个数据工具取数或保存：
+这些问题由 Claude Code Skill 完成推理，并调用后端 6 个数据工具取数或保存：
 
 - “筛一筛芯片建模工程师，推荐一部分人。”
 - “库里各岗位候选人数量分布怎么样？”
 - “生成一份应用软件开发工程师候选人池分析报告，用 PPT 汇报页结构展示。”
 - “做一页芯片建模工程师招聘漏斗分析，说明各阶段转化率和流失原因。”
+- “最近一个月有哪些人准备入职？”
+- “看看张三的信息。”

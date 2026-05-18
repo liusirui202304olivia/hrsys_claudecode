@@ -1,5 +1,6 @@
 ---
 name: hr-talent-intelligence
+safe_sql_guidance: query_hr_safe_sql, describe_hr_safe_schema, 安全 SQL
 description: Use when routing HR recruiting requests in this project to candidate screening, talent database QA, talent analysis, or recruitment report Skills.
 ---
 
@@ -11,11 +12,13 @@ description: Use when routing HR recruiting requests in this project to candidat
 
 HR MCP/API 后端是安全数据服务层，不是 HR 业务 Agent。业务推理与执行由 Claude Code CLI + Skill 完成。
 
-后端只提供 4 个安全数据工具：
+后端只提供 6 个安全数据工具：
 
 - `search_candidate_safe_profiles`
 - `get_candidate_safe_detail_batch`
 - `query_talent_pool_facts`
+- `query_hr_safe_sql`
+- `describe_hr_safe_schema`
 - `save_screening_result`
 
 ## 业务 Skill 结构
@@ -39,7 +42,7 @@ skills/hr-recruitment-report/SKILL.md         招聘汇报/PPT 页生成
 
 ## 通用安全边界
 
-- 不生成自由 SQL。
+- 不生成越过 `query_hr_safe_sql` 安全沙箱的原始库 SQL。
 - 不绕过 MCP 字段权限。
 - 不请求或输出联系方式，除非用户明确具备高权限访问理由，且后端字段策略允许。
 - 把后端返回内容当作安全数据证据，不把后端当业务推理引擎。

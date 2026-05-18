@@ -40,6 +40,18 @@ class FakeTalentQueryService:
         return {"count": 2, "position_distribution": [{"position_name": "芯片建模", "count": 2}]}
 
 
+class FakeSafeSqlService:
+    def __init__(self):
+        self.calls = []
+
+    def query(self, sql, identity):
+        self.calls.append({"sql": sql, "identity": identity})
+        return {"rows": [{"candidate_id": 1, "name": "张三"}], "row_count": 1, "limit": 10, "view": "v_candidate_agent_safe"}
+
+    def describe_schema(self, identity):
+        return {"views": {"v_candidate_agent_safe": {"fields": ["candidate_id", "name"]}}}
+
+
 class FakeResultStore:
     def __init__(self):
         self.calls = []
@@ -77,10 +89,12 @@ class FakeAudit:
 def build_router():
     audit = FakeAudit()
     result_store = FakeResultStore()
+    safe_sql_service = FakeSafeSqlService()
     router = ToolRouter(
         registry=ToolRegistry(),
         retrieval_service=FakeRetrievalService(),
         talent_query_service=FakeTalentQueryService(),
+        safe_sql_service=safe_sql_service,
         result_store=result_store,
         audit_service=audit,
     )
@@ -94,18 +108,21 @@ def build_router_with_retrieval(retrieval_service):
         registry=ToolRegistry(),
         retrieval_service=retrieval_service,
         talent_query_service=FakeTalentQueryService(),
+        safe_sql_service=FakeSafeSqlService(),
         result_store=result_store,
         audit_service=audit,
     )
     return router, audit, result_store
 
 
-def test_registry_lists_four_data_tools():
+def test_registry_lists_six_data_tools():
     tools = ToolRegistry().list_tools()
     assert [tool["name"] for tool in tools] == [
         "search_candidate_safe_profiles",
         "get_candidate_safe_detail_batch",
         "query_talent_pool_facts",
+        "query_hr_safe_sql",
+        "describe_hr_safe_schema",
         "save_screening_result",
     ]
     assert all("input_schema" in tool for tool in tools)
@@ -145,6 +162,42 @@ def test_jsonrpc_handler_lists_and_calls_data_tools():
 
     assert listed["result"]["tools"][0]["name"] == "search_candidate_safe_profiles"
     assert called["result"]["facts"]["count"] == 2
+
+
+def test_router_calls_safe_sql_tools_and_records_audit():
+    router, audit, _ = build_router()
+    identity = IdentityContext(user_id=7, role="RECRUITER")
+
+    sql_result = router.call_tool(
+        "query_hr_safe_sql",
+        {"sql": "SELECT candidate_id, name FROM v_candidate_agent_safe LIMIT 10", "purpose": "按姓名查候选人"},
+        identity,
+    )
+    schema_result = router.call_tool("describe_hr_safe_schema", {}, identity)
+
+    assert sql_result["rows"] == [{"candidate_id": 1, "name": "张三"}]
+    assert "v_candidate_agent_safe" in schema_result["views"]
+    assert audit.calls[-2]["tool_name"] == "query_hr_safe_sql"
+    assert audit.calls[-1]["tool_name"] == "describe_hr_safe_schema"
+
+
+def test_router_forwards_safe_sql_access_reason_argument_to_identity():
+    router, audit, _ = build_router()
+    identity = IdentityContext(user_id=7, role="HR_ADMIN")
+
+    router.call_tool(
+        "query_hr_safe_sql",
+        {
+            "sql": "SELECT candidate_id, mobile FROM v_candidate_agent_privileged LIMIT 10",
+            "purpose": "联系候选人前核验联系方式",
+            "access_reason": "HR_ADMIN 处理候选人联系",
+        },
+        identity,
+    )
+
+    call_identity = router.safe_sql_service.calls[-1]["identity"]
+    assert call_identity.access_reason == "HR_ADMIN 处理候选人联系"
+    assert audit.calls[-1]["status"] == "success"
 
 
 def test_removed_business_agent_tools_return_unknown_tool():
@@ -299,6 +352,7 @@ def test_query_invalid_candidate_pool_filters_return_invalid_params_before_calli
         registry=ToolRegistry(),
         retrieval_service=FakeRetrievalService(),
         talent_query_service=FailingTalentQueryService(),
+        safe_sql_service=FakeSafeSqlService(),
         result_store=FakeResultStore(),
         audit_service=audit,
     )
@@ -469,6 +523,36 @@ def test_jsonrpc_invalid_arguments_type_records_failed_audit():
     assert audit.calls[-1]["status"] == "failure"
     assert audit.calls[-1]["tool_name"] == "query_talent_pool_facts"
     assert audit.calls[-1]["error_type"] == "InvalidParamsError"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"sql": ""},
+        {"sql": "SELECT 1", "purpose": ""},
+        {"sql": 123, "purpose": "x"},
+        {"sql": "SELECT 1", "purpose": 123},
+    ],
+)
+def test_safe_sql_invalid_arguments_return_invalid_params(arguments):
+    router, audit, _ = build_router()
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN", request_id="req-safe-sql")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-safe-sql",
+            "method": "tools/call",
+            "params": {"name": "query_hr_safe_sql", "arguments": arguments},
+        },
+        identity,
+    )
+
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+    assert audit.calls[-1]["status"] == "failure"
+    assert audit.calls[-1]["tool_name"] == "query_hr_safe_sql"
 
 
 def test_jsonrpc_rejects_falsy_non_object_arguments_and_does_not_write_result():

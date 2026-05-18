@@ -3,5 +3,6 @@ uvicorn==0.16.0
 pydantic==1.9.2
 pymysql==1.0.0
 requests==2.26.0
+sqlparse==0.4.4
 dataclasses==0.8; python_version < "3.7"
 pytest==7.0.1

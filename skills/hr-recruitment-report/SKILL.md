@@ -1,7 +1,14 @@
 ---
 name: hr-recruitment-report
+safe_sql_guidance: query_hr_safe_sql, describe_hr_safe_schema, 安全 SQL, 业务判断
 description: Use when the user asks for HR recruiting reports, recruiting funnel analysis, talent pool summary slides, weekly monthly quarterly reports, or PPT-style recruiting summaries.
 ---
+
+## 安全 SQL 报告取数补充
+
+报告需要的漏斗、趋势、状态结构、来源结构、拟入职名单和候选人样本，可以用 `query_talent_pool_facts` 获取固定聚合；当报告维度更灵活时，可以调用 `describe_hr_safe_schema` 后用 `query_hr_safe_sql` 查询安全 view。安全 SQL 只负责取数；业务判断、报告结构、PPT 化表达、风险点和行动建议仍由本 Skill 完成。
+
+涉及“准备入职”的报告默认按 `proposed_join_date`，排除 `REJECTED`、`HIRED`；报告必须写清楚时间范围、状态口径和查询字段。
 
 # Recruitment Report Skill 招聘汇报生成
 
@@ -197,7 +204,7 @@ description: Use when the user asks for HR recruiting reports, recruiting funnel
 
 ## 边界
 
-- 不生成自由 SQL。
+- 不生成越过 `query_hr_safe_sql` 安全沙箱的原始库 SQL。
 - 不编造数据库没有返回的阶段人数、转化率或趋势。
 - 不输出联系方式字段。
 - 不把薪酬、绩效、考勤、培训等外部 HR 系统内容写成事实；如果用户要完整人力资源年终总结，只能说明 P0 当前只接入招聘人才库数据。

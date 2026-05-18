@@ -12,22 +12,57 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
 ALLOWED_CANDIDATE_FILTERS = {
+    "name_query",
     "position_query",
     "position_name",
     "position_id",
+    "source_query",
+    "source_id",
+    "proposed_department_id",
+    "hr_id",
     "candidate_status",
     "status",
     "min_work_years",
+    "max_work_years",
+    "gender",
+    "degree",
+    "college_query",
+    "major_query",
+    "is_focused",
+    "manual_import",
+    "match_point_min",
     "skills_any",
     "experience_keywords_any",
     "candidate_pool",
     "rejected_before_days",
     "status_updated_before",
     "status_updated_after",
+    "proposed_join_date_from",
+    "proposed_join_date_to",
+    "create_time_from",
+    "create_time_to",
+    "update_time_from",
+    "update_time_to",
 }
 
-VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
+VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired", "joining"}
 DEFAULT_REJECTED_BEFORE_DAYS = 180
+ALLOWED_DISTRIBUTIONS = {
+    "position_name",
+    "status",
+    "source_name",
+    "candidate_pool",
+    "proposed_department_id",
+    "hr_id",
+    "degree",
+    "college",
+    "major",
+    "gender",
+    "work_years_band",
+    "proposed_join_month",
+    "create_month",
+    "update_month",
+}
 
 
 class MySQLTalentRepository:
@@ -138,11 +173,22 @@ class MySQLTalentRepository:
     def source_distribution(self, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         return self._distribution("source_name", filters or {}, identity_scope)
 
+    def distribution(self, dimension: str, filters: Optional[Dict[str, Any]], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        if dimension not in ALLOWED_DISTRIBUTIONS:
+            raise ValueError("Unsupported distribution dimension: " + str(dimension))
+        return self._distribution(dimension, filters or {}, identity_scope)
+
+    def execute_safe_sql(self, sql: str) -> List[Dict[str, Any]]:
+        return self._fetch_all(sql, [])
+
     def _where_parts(self, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[Any]]:
         self._validate_filters(filters)
         where, params = self._scope_where_parts(identity_scope)
         where = list(where)
         params = list(params)
+        if filters.get("name_query"):
+            where.append("v.name LIKE %s")
+            params.append(f"%{filters['name_query']}%")
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query:
             where.append("(v.position_name LIKE %s OR v.position_jd LIKE %s)")
@@ -151,12 +197,51 @@ class MySQLTalentRepository:
         if filters.get("position_id") is not None:
             where.append("v.position_id = %s")
             params.append(int(filters["position_id"]))
+        if filters.get("source_id") is not None:
+            where.append("v.source_id = %s")
+            params.append(int(filters["source_id"]))
+        if filters.get("source_query"):
+            where.append("(v.source_name LIKE %s OR v.source_full_name LIKE %s)")
+            like_value = f"%{filters['source_query']}%"
+            params.extend([like_value, like_value])
+        if filters.get("proposed_department_id") is not None:
+            where.append("v.proposed_department_id = %s")
+            params.append(int(filters["proposed_department_id"]))
+        if filters.get("hr_id") is not None:
+            where.append("v.hr_id = %s")
+            params.append(int(filters["hr_id"]))
         if filters.get("min_work_years") is not None:
             where.append("v.work_years >= %s")
             params.append(int(filters["min_work_years"]))
+        if filters.get("max_work_years") is not None:
+            where.append("v.work_years <= %s")
+            params.append(int(filters["max_work_years"]))
+        if filters.get("gender"):
+            where.append("v.gender = %s")
+            params.append(filters["gender"])
+        if filters.get("degree"):
+            where.append("v.degree = %s")
+            params.append(filters["degree"])
+        if filters.get("college_query"):
+            where.append("v.college LIKE %s")
+            params.append(f"%{filters['college_query']}%")
+        if filters.get("major_query"):
+            where.append("v.major LIKE %s")
+            params.append(f"%{filters['major_query']}%")
+        if filters.get("is_focused") is not None:
+            where.append("v.is_focused = %s")
+            params.append(1 if bool(filters["is_focused"]) else 0)
+        if filters.get("manual_import") is not None:
+            where.append("v.manual_import = %s")
+            params.append(1 if bool(filters["manual_import"]) else 0)
+        if filters.get("match_point_min") is not None:
+            where.append("v.match_point >= %s")
+            params.append(int(filters["match_point_min"]))
         candidate_pool = filters.get("candidate_pool")
         if candidate_pool == "active":
             where.append("v.status NOT IN ('REJECTED', 'HIRED')")
+        elif candidate_pool == "joining":
+            where.append("v.proposed_join_date IS NOT NULL AND v.status NOT IN ('REJECTED', 'HIRED')")
         elif candidate_pool == "old_rejected":
             where.append("v.status = %s AND v.update_time <= %s")
             params.extend(["REJECTED", self._rejected_cutoff(filters)])
@@ -172,6 +257,20 @@ class MySQLTalentRepository:
         if filters.get("status_updated_after") is not None:
             where.append("v.update_time >= %s")
             params.append(self._format_day_start(filters["status_updated_after"], "status_updated_after"))
+        for key, field_name, boundary in [
+            ("proposed_join_date_from", "proposed_join_date", ">="),
+            ("proposed_join_date_to", "proposed_join_date", "<="),
+            ("create_time_from", "create_time", ">="),
+            ("create_time_to", "create_time", "<="),
+            ("update_time_from", "update_time", ">="),
+            ("update_time_to", "update_time", "<="),
+        ]:
+            if filters.get(key) is not None:
+                where.append(f"v.{field_name} {boundary} %s")
+                if key.endswith("_from"):
+                    params.append(self._format_day_start(filters[key], key))
+                else:
+                    params.append(self._format_day_end(filters[key], key))
         statuses = filters.get("candidate_status", filters.get("status"))
         if statuses:
             status_list = [statuses] if isinstance(statuses, str) else list(statuses)
@@ -203,15 +302,49 @@ class MySQLTalentRepository:
         self._validate_candidate_pool_filters(filters)
 
     def _distribution(self, field: str, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        if field not in ALLOWED_DISTRIBUTIONS:
+            raise ValueError("Unsupported distribution dimension: " + str(field))
         where_parts, params = self._where_parts(filters or {}, identity_scope)
+        expression, group_params = self._distribution_expression(field, filters or {})
+        params = group_params + params
+        group_by_expression = expression if expression.startswith("v.") else field
         sql = f"""
-            SELECT COALESCE(v.{field}, 'UNKNOWN') AS {field}, COUNT(*) AS count
+            SELECT COALESCE({expression}, 'UNKNOWN') AS {field}, COUNT(*) AS count
             FROM {self.SAFE_VIEW} v
             {self._where_sql(where_parts)}
-            GROUP BY v.{field}
-            ORDER BY count DESC, v.{field} ASC
+            GROUP BY {group_by_expression}
+            ORDER BY count DESC, {field} ASC
         """
         return self._fetch_all(sql, params)
+
+    def _distribution_expression(self, field: str, filters: Dict[str, Any]) -> Tuple[str, List[Any]]:
+        if field == "proposed_join_month":
+            return "DATE_FORMAT(v.proposed_join_date, '%Y-%m')", []
+        if field == "create_month":
+            return "DATE_FORMAT(v.create_time, '%Y-%m')", []
+        if field == "update_month":
+            return "DATE_FORMAT(v.update_time, '%Y-%m')", []
+        if field == "work_years_band":
+            return (
+                "CASE "
+                "WHEN v.work_years IS NULL THEN 'UNKNOWN' "
+                "WHEN v.work_years <= 2 THEN '0-2' "
+                "WHEN v.work_years <= 5 THEN '3-5' "
+                "WHEN v.work_years <= 10 THEN '6-10' "
+                "ELSE '10+' END",
+                [],
+            )
+        if field == "candidate_pool":
+            return (
+                "CASE "
+                "WHEN v.status = 'HIRED' THEN 'hired' "
+                "WHEN v.status = 'REJECTED' AND v.update_time <= %s THEN 'old_rejected' "
+                "WHEN v.status = 'REJECTED' THEN 'recent_rejected' "
+                "WHEN v.proposed_join_date IS NOT NULL THEN 'joining' "
+                "ELSE 'active' END",
+                [self._rejected_cutoff(filters)],
+            )
+        return "v." + field, []
 
     def _validate_page_size(self, page_size: int) -> int:
         try:
@@ -225,12 +358,17 @@ class MySQLTalentRepository:
     def _validate_candidate_pool_filters(self, filters: Dict[str, Any]) -> None:
         candidate_pool = filters.get("candidate_pool")
         if candidate_pool is not None and candidate_pool not in VALID_CANDIDATE_POOLS:
-            raise ValueError("candidate_pool must be one of active, old_rejected, recent_rejected, hired")
+            raise ValueError("candidate_pool must be one of active, old_rejected, recent_rejected, hired, joining")
         if candidate_pool is not None and (filters.get("status") is not None or filters.get("candidate_status") is not None):
             raise ValueError("candidate_pool cannot be combined with status or candidate_status")
         if "rejected_before_days" in filters:
             self._validate_positive_integer(filters.get("rejected_before_days"), "rejected_before_days")
-        for key in ["status_updated_before", "status_updated_after"]:
+        for key in [
+            "status_updated_before", "status_updated_after",
+            "proposed_join_date_from", "proposed_join_date_to",
+            "create_time_from", "create_time_to",
+            "update_time_from", "update_time_to",
+        ]:
             if key in filters and filters.get(key) is not None:
                 self._parse_yyyy_mm_dd(filters.get(key), key)
 

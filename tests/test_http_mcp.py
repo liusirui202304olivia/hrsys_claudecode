@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from hr_mcp.http.app import create_app
+from hr_mcp.mcp.jsonrpc import JsonRpcError
 from hr_mcp.services.config_center import ConfigCenter
 
 
@@ -131,7 +132,7 @@ def test_healthz_readyz_and_admin_tools_endpoint(tmp_path: Path):
     assert ready_body["checks"]["database"] is True
     assert "standard_markdown" not in ready_body["checks"]
     assert tools_status == 200
-    assert len(tools_body["tools"]) == 4
+    assert len(tools_body["tools"]) == 6
 
 
 def test_fastapi_routes_delegate_to_same_http_mcp_logic(tmp_path: Path):
@@ -184,10 +185,64 @@ def test_mcp_tools_list_and_facts_call(tmp_path: Path):
         "search_candidate_safe_profiles",
         "get_candidate_safe_detail_batch",
         "query_talent_pool_facts",
+        "query_hr_safe_sql",
+        "describe_hr_safe_schema",
         "save_screening_result",
     ]
     assert call_status == 200
     assert call_body["result"]["facts"]["count"] == 1
+
+
+def test_mcp_safe_sql_supports_open_ended_candidate_lookup(tmp_path: Path):
+    app = make_app(tmp_path)
+
+    status, body = app.handle_request(
+        "POST",
+        "/mcp",
+        auth("recruiter-token"),
+        rpc_body({
+            "jsonrpc": "2.0",
+            "id": "safe-sql",
+            "method": "tools/call",
+            "params": {
+                "name": "query_hr_safe_sql",
+                "arguments": {
+                    "purpose": "按姓名查看候选人信息",
+                    "sql": "SELECT candidate_id, name, status, proposed_join_date FROM v_candidate_agent_safe WHERE candidate_id = 1",
+                },
+            },
+        }),
+    )
+
+    assert status == 200
+    assert body["result"]["row_count"] == 1
+    assert body["result"]["rows"][0]["name"] == "张三"
+    assert body["result"]["limit"] == 300
+
+
+def test_mcp_safe_sql_rejects_raw_table_access(tmp_path: Path):
+    app = make_app(tmp_path)
+
+    status, body = app.handle_request(
+        "POST",
+        "/mcp",
+        auth("admin-token"),
+        rpc_body({
+            "jsonrpc": "2.0",
+            "id": "unsafe-sql",
+            "method": "tools/call",
+            "params": {
+                "name": "query_hr_safe_sql",
+                "arguments": {
+                    "purpose": "尝试原表",
+                    "sql": "SELECT candidate_id, name FROM hr_candidate LIMIT 10",
+                },
+            },
+        }),
+    )
+
+    assert status == 200
+    assert body["error"]["code"] == JsonRpcError.INVALID_REQUEST
 
 
 def test_search_result_candidate_id_can_be_reused_to_save_screening_result(tmp_path: Path):

@@ -61,7 +61,7 @@ def test_entry_skill_routes_to_business_task_skills() -> None:
         assert forbidden not in all_skill_text
 
 
-def test_skills_keep_backend_as_four_tool_data_service() -> None:
+def test_skills_keep_backend_as_safe_data_service() -> None:
     all_skill_text = "\n".join(
         path.read_text(encoding="utf-8") for path in SKILLS.glob("*/SKILL.md")
     )
@@ -70,6 +70,8 @@ def test_skills_keep_backend_as_four_tool_data_service() -> None:
         "search_candidate_safe_profiles",
         "get_candidate_safe_detail_batch",
         "query_talent_pool_facts",
+        "query_hr_safe_sql",
+        "describe_hr_safe_schema",
         "save_screening_result",
     ]:
         assert tool_name in all_skill_text

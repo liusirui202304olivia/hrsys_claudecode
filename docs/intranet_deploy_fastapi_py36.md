@@ -174,6 +174,18 @@ python3 -m venv "$BASE/venv_py36"
 ok
 ```
 
+本版本新增安全 SQL 沙箱依赖 `sqlparse==0.4.4`，内网安装完成后建议额外验证：
+
+```bash
+"$BASE/venv_py36/bin/python" -c "import fastapi, uvicorn, pymysql, sqlparse; print('ok')"
+```
+
+如果之前已经创建过 venv，需要重新执行：
+
+```bash
+"$BASE/venv_py36/bin/python" -m pip install -r "$BASE/app/requirements-py36.txt"
+```
+
 如果 pip 不能联网：
 
 ```bash
