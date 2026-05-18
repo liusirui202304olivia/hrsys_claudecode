@@ -76,10 +76,10 @@ bash ./deploy/package_release.sh
 D:\hr_for_claudecode\release\hr_mcp_release_<commit>.zip
 ```
 
-例如本次实现安全 SQL 后的包：
+例如当前发布包名会类似：
 
 ```text
-D:\hr_for_claudecode\release\hr_mcp_release_e131f05.zip
+D:\hr_for_claudecode\release\hr_mcp_release_<commit>.zip
 ```
 
 如果你在 PowerShell 里执行，使用：
@@ -102,14 +102,15 @@ bash ./deploy/package_release.sh
 通过 NoMachine 把 zip 传到内网机器，例如：
 
 ```text
-/workspace/devops/env_prod/service/ai/hr_mcp/hr_mcp_release_e131f05.zip
+/workspace/devops/env_prod/service/ai/hr_mcp/hr_mcp_release_<commit>.zip
 ```
 
 如果文件先到了 `~/Desktop`，再在内网 shell 执行：
 
 ```bash
 BASE=/workspace/devops/env_prod/service/ai/hr_mcp
-mv ~/Desktop/hr_mcp_release_e131f05.zip "$BASE/"
+ZIP=<你实际上传的zip文件名>
+mv ~/Desktop/$ZIP "$BASE/"
 ```
 
 如果文件名不同，把命令中的 zip 名替换成实际文件名。
@@ -157,7 +158,8 @@ mkdir -p "$BASE/app"
 ```bash
 BASE=/workspace/devops/env_prod/service/ai/hr_mcp
 cd "$BASE/app"
-unzip "$BASE/hr_mcp_release_e131f05.zip"
+ZIP=<你实际上传的zip文件名>
+unzip "$BASE/$ZIP"
 ```
 
 验证关键文件存在：
