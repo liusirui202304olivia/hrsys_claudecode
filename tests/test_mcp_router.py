@@ -161,7 +161,46 @@ def test_jsonrpc_handler_lists_and_calls_data_tools():
     )
 
     assert listed["result"]["tools"][0]["name"] == "search_candidate_safe_profiles"
+    assert "inputSchema" in listed["result"]["tools"][0]
     assert called["result"]["facts"]["count"] == 2
+    assert called["result"]["structuredContent"]["facts"]["count"] == 2
+    assert called["result"]["content"][0]["type"] == "text"
+
+
+def test_jsonrpc_handler_supports_mcp_initialize_handshake():
+    router, _, _ = build_router()
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "claude-code", "version": "test"},
+            },
+        },
+        identity,
+    )
+
+    assert response["result"]["protocolVersion"] == "2024-11-05"
+    assert response["result"]["capabilities"]["tools"] == {"listChanged": False}
+    assert response["result"]["serverInfo"]["name"] == "hr-mcp"
+
+
+def test_jsonrpc_handler_accepts_initialized_notification_and_ping():
+    router, _, _ = build_router()
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN")
+
+    initialized = handler.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}, identity)
+    ping = handler.handle({"jsonrpc": "2.0", "id": "ping-1", "method": "ping"}, identity)
+
+    assert initialized["result"] == {}
+    assert ping["result"] == {}
 
 
 def test_router_calls_safe_sql_tools_and_records_audit():

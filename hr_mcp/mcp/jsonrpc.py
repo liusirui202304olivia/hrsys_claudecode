@@ -5,6 +5,8 @@
 协议边界在这里终止；候选人权限、字段策略、事实查询和结果保存都由安全数据服务层完成。
 """
 
+import json
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from hr_mcp.models.context import IdentityContext
@@ -38,12 +40,18 @@ class JsonRpcHandler:
             params = payload.get("params", {})
             if params is None:
                 params = {}
-            if method == "tools/list":
+            if method == "initialize":
+                if not isinstance(params, dict):
+                    raise InvalidParamsError("initialize params must be an object")
+                result = self._initialize_result(params)
+            elif method in {"notifications/initialized", "ping"}:
+                result = {}
+            elif method == "tools/list":
                 if not isinstance(params, dict):
                     raise InvalidParamsError("tools/list params must be an object")
-                result = {"tools": self.router.list_tools()}
+                result = {"tools": self._mcp_tools(self.router.list_tools())}
             elif method == "tools/call":
-                result = self._handle_tool_call(params, identity)
+                result = self._mcp_tool_call_result(self._handle_tool_call(params, identity))
             else:
                 raise UnknownToolError(f"Unknown JSON-RPC method: {method}")
             return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -77,6 +85,39 @@ class JsonRpcHandler:
 
     def _error(self, request_id: Any, code: int, message: str) -> Dict[str, Any]:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+
+    def _initialize_result(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_version = params.get("protocolVersion")
+        protocol_version = requested_version if isinstance(requested_version, str) and requested_version else "2024-11-05"
+        return {
+            "protocolVersion": protocol_version,
+            "capabilities": {"tools": {"listChanged": False}},
+            "serverInfo": {"name": "hr-mcp", "version": "0.1.0"},
+        }
+
+    def _mcp_tools(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized = []
+        for tool in tools:
+            item = deepcopy(tool)
+            if "input_schema" in item and "inputSchema" not in item:
+                item["inputSchema"] = item["input_schema"]
+            if "output_schema" in item and "outputSchema" not in item:
+                item["outputSchema"] = item["output_schema"]
+            normalized.append(item)
+        return normalized
+
+    def _mcp_tool_call_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        payload = deepcopy(result)
+        if "structuredContent" not in payload:
+            payload["structuredContent"] = deepcopy(result)
+        if "content" not in payload:
+            payload["content"] = [{
+                "type": "text",
+                "text": json.dumps(result, ensure_ascii=False, sort_keys=True, default=str),
+            }]
+        if "isError" not in payload:
+            payload["isError"] = False
+        return payload
 
     def _record_failed_tool_call(self, tool_name: str, arguments: Dict[str, Any], identity: IdentityContext, exc: Exception) -> None:
         recorder = getattr(self.router, "record_failed_call", None)
