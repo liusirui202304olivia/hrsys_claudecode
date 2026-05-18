@@ -147,6 +147,28 @@ def test_screening_skill_defines_full_pool_cross_position_strategy() -> None:
         assert rule in content
 
 
+def test_screening_skill_includes_boss_preference_rules() -> None:
+    content = _read("skills/hr-candidate-screening/SKILL.md")
+
+    required_rules = [
+        "老板偏好",
+        "学校背景好",
+        "top 985",
+        "211",
+        "海外",
+        "高潜年轻人",
+        "跳槽不能频繁",
+        "研发岗位 leader",
+        "35岁",
+        "带过团队",
+        "sig owner",
+        "大厂背景",
+    ]
+
+    for rule in required_rules:
+        assert rule in content
+
+
 def test_analysis_and_report_skills_split_active_and_rejected_candidate_pools() -> None:
     analysis = _read("skills/hr-talent-analysis/SKILL.md")
     report = _read("skills/hr-recruitment-report/SKILL.md")
