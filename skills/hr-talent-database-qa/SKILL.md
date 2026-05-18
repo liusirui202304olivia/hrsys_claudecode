@@ -26,6 +26,8 @@ description: Use when the user asks factual questions about the HR talent databa
 6. 不要基于问答直接生成“推荐/不推荐”结论。
 7. 不输出联系方式字段。
 
+事实问答不默认套推荐池策略。用户问“库里多少人”“分布怎么样”时，按用户问题原样统计，并明确说明状态口径；只有用户明确限定“流程中”“历史拒绝”“近期拒绝”“已入职”时，才使用 `candidate_pool` 过滤。
+
 ## 常用查询映射
 
 - 岗位数量分布：`group_by=["position_name"]`
@@ -34,6 +36,10 @@ description: Use when the user asks factual questions about the HR talent databa
 - 总量：`metrics=["count"]`
 - 按岗位过滤：`filters={"position_query":"数据库岗位名或岗位关键词"}`
 - 按状态过滤：`filters={"status":["SCREEN_PROCESS"]}`
+- 流程中候选人：`filters={"candidate_pool":"active"}`
+- 历史拒绝候选人：`filters={"candidate_pool":"old_rejected","rejected_before_days":180}`
+- 近期拒绝候选人：`filters={"candidate_pool":"recent_rejected","rejected_before_days":180}`
+- 已入职候选人：`filters={"candidate_pool":"hired"}`
 
 ## 输出要求
 

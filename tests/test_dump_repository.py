@@ -85,9 +85,57 @@ INSERT INTO `hr_interview_evaluate` VALUES
 '''
 
 
+POOL_FILTER_DUMP = r'''
+CREATE TABLE `hr_candidate` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `source_id` int NOT NULL COMMENT '简历来源',
+  `position_id` int NOT NULL COMMENT '岗位ID',
+  `status` varchar(50) NOT NULL COMMENT '状态',
+  `hr_id` int NOT NULL COMMENT '责任HR',
+  `name` varchar(100) DEFAULT NULL COMMENT '姓名',
+  `work_years` int DEFAULT NULL COMMENT '工作年限',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间, 触发器跟随status',
+  `experiences` json DEFAULT NULL COMMENT '履历',
+  `project_experiences` json DEFAULT (_utf8mb4'[]') COMMENT '项目经历',
+  `skills` json DEFAULT (_utf8mb4'[]') COMMENT '技术栈',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='候选人';
+INSERT INTO `hr_candidate` VALUES
+(1,10,20,'SCREEN_PROCESS',2,'流程中候选人',5,'2026-05-01 10:00:00','[]','[]','["C++"]'),
+(2,10,20,'REJECTED',2,'近期拒绝候选人',6,'2099-04-01 10:00:00','[]','[]','["C++"]'),
+(3,10,20,'REJECTED',2,'历史拒绝候选人',7,'2000-01-01 10:00:00','[]','[]','["C++"]'),
+(4,10,20,'HIRED',2,'已入职候选人',8,'2026-03-01 10:00:00','[]','[]','["C++"]');
+
+CREATE TABLE `hr_position` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL COMMENT '岗位名称',
+  `category` varchar(20) NOT NULL COMMENT '岗位类别',
+  `jd` text NOT NULL COMMENT '职位描述',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否启用',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岗位';
+INSERT INTO `hr_position` VALUES
+(20,'CPU性能建模工程师','DEV','负责CPU性能建模',1);
+
+CREATE TABLE `hr_source` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `name` varchar(255) NOT NULL COMMENT '名称',
+  `full_name` varchar(255) NOT NULL COMMENT '全称',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='简历来源';
+INSERT INTO `hr_source` VALUES (10,'历史导入','其他/历史导入');
+'''
+
+
 def write_dump(tmp_path: Path) -> Path:
     dump_path = tmp_path / "sample.sql"
     dump_path.write_text(SAMPLE_DUMP, encoding="utf-8")
+    return dump_path
+
+
+def write_pool_filter_dump(tmp_path: Path) -> Path:
+    dump_path = tmp_path / "pool_filter.sql"
+    dump_path.write_text(POOL_FILTER_DUMP, encoding="utf-8")
     return dump_path
 
 
@@ -154,6 +202,29 @@ def test_dump_repository_search_paginates_without_changing_total_count(tmp_path:
     assert len(second_page["items"]) == 1
     assert second_page["total_count"] == 2
     assert second_page["has_more"] is False
+
+
+def test_dump_repository_filters_candidate_pools_and_status_update_dates(tmp_path: Path):
+    repo = DumpTalentRepository(write_pool_filter_dump(tmp_path))
+
+    active = repo.search_candidates({"candidate_pool": "active"}, page_size=10)
+    old_rejected = repo.search_candidates({"candidate_pool": "old_rejected", "rejected_before_days": 180}, page_size=10)
+    recent_rejected = repo.search_candidates({"candidate_pool": "recent_rejected", "rejected_before_days": 180}, page_size=10)
+    hired = repo.search_candidates({"candidate_pool": "hired"}, page_size=10)
+    stale = repo.search_candidates({"status_updated_before": "2025-12-01"}, page_size=10)
+
+    assert [row["name"] for row in active["items"]] == ["流程中候选人"]
+    assert [row["name"] for row in old_rejected["items"]] == ["历史拒绝候选人"]
+    assert [row["name"] for row in recent_rejected["items"]] == ["近期拒绝候选人"]
+    assert [row["name"] for row in hired["items"]] == ["已入职候选人"]
+    assert [row["name"] for row in stale["items"]] == ["历史拒绝候选人"]
+
+
+def test_dump_repository_rejects_conflicting_pool_and_status_filter(tmp_path: Path):
+    repo = DumpTalentRepository(write_pool_filter_dump(tmp_path))
+
+    with pytest.raises(ValueError):
+        repo.search_candidates({"candidate_pool": "active", "status": ["SCREEN_PROCESS"]}, page_size=10)
 
 
 def test_mysql_repository_uses_safe_view_by_default_and_privileged_only_when_requested():
@@ -256,6 +327,51 @@ def test_mysql_repository_recruiter_scope_uses_aggregated_follower_ids():
     assert "FIND_IN_SET(%s, COALESCE(v.follower_ids, ''))" in combined_sql
     assert re.search(r"\bv\.follower_id\b", combined_sql) is None
     assert repo.params_list[0][:2] == [42, 42]
+
+
+def test_mysql_repository_candidate_pool_filters_are_controlled_sql_conditions():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+            self.params_list = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            self.params_list.append(params)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 1}]
+            return [{"candidate_id": 1, "update_time": "2025-01-01 00:00:00"}]
+
+    repo = RecordingRepo()
+
+    repo.search_candidates({"candidate_pool": "active"}, page_size=10)
+    repo.search_candidates({"candidate_pool": "old_rejected", "rejected_before_days": 180}, page_size=10)
+    repo.search_candidates({"candidate_pool": "recent_rejected", "rejected_before_days": 180}, page_size=10)
+    repo.search_candidates({"candidate_pool": "hired", "status_updated_after": "2026-01-01"}, page_size=10)
+    combined_sql = "\n".join(repo.sqls)
+    combined_params = [item for params in repo.params_list for item in params]
+
+    assert "v.status NOT IN ('REJECTED', 'HIRED')" in combined_sql
+    assert "v.status = %s AND v.update_time <= %s" in combined_sql
+    assert "v.status = %s AND v.update_time > %s" in combined_sql
+    assert "v.status = %s" in combined_sql
+    assert "v.update_time >= %s" in combined_sql
+    assert "REJECTED" in combined_params
+    assert "HIRED" in combined_params
+
+
+def test_mysql_repository_rejects_pool_status_conflict_and_bad_dates():
+    repo = MySQLTalentRepository({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+
+    with pytest.raises(ValueError):
+        repo.search_candidates({"candidate_pool": "active", "status": ["SCREEN_PROCESS"]}, page_size=10)
+    with pytest.raises(ValueError):
+        repo.search_candidates({"candidate_pool": "bad"}, page_size=10)
+    with pytest.raises(ValueError):
+        repo.search_candidates({"candidate_pool": "old_rejected", "rejected_before_days": True}, page_size=10)
+    with pytest.raises(ValueError):
+        repo.search_candidates({"status_updated_before": "2026/01/01"}, page_size=10)
 
 
 def test_mysql_repository_ready_checks_both_candidate_views(monkeypatch):

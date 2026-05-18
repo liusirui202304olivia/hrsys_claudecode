@@ -21,6 +21,10 @@ CANDIDATE_FILTER_SCHEMA: Dict[str, Any] = {
         "min_work_years": {"type": "integer", "minimum": 0},
         "skills_any": {"type": "array", "items": {"type": "string"}},
         "experience_keywords_any": {"type": "array", "items": {"type": "string"}},
+        "candidate_pool": {"type": "string", "enum": ["active", "old_rejected", "recent_rejected", "hired"]},
+        "rejected_before_days": {"type": "integer", "minimum": 1},
+        "status_updated_before": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "status_updated_after": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
     },
 }
 

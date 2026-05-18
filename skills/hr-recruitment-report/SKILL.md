@@ -155,6 +155,15 @@ description: Use when the user asks for HR recruiting reports, recruiting funnel
 
 如果报告中包含推荐候选人，必须遵循 `skills/hr-candidate-screening/SKILL.md` 的推荐逻辑。
 
+如果报告涉及“可推荐候选池”，必须拆成：
+
+- `active` 主池：仍在招聘流程中的优先推进人群。
+- `old_rejected` 补充池：`status=REJECTED` 且 `update_time` 超过 180 天、需要由筛选 Skill 判断是否高度匹配的人群。
+- `recent_rejected` 不推荐池：近期被拒候选人，只能用于风险、流失或流程诊断。
+- `hired` 历史成功池：已入职候选人，只用于供给画像、转化或成功样本分析。
+
+不要把大量 `REJECTED` 候选人当作同等可推进人群；报告必须说明 `update_time` 在 `REJECTED` 状态下作为被拒时间使用。
+
 ## 数据工具调用方式
 
 1. 用 `query_talent_pool_facts` 获取 count、岗位分布、状态分布、来源分布等事实。

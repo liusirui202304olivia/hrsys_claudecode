@@ -248,6 +248,81 @@ def test_search_boolean_page_size_returns_invalid_params_before_calling_service(
     assert audit.calls[-1]["error_type"] == "InvalidToolArgumentsError"
 
 
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"candidate_pool": "bad"},
+        {"candidate_pool": "active", "status": ["SCREEN_PROCESS"]},
+        {"candidate_pool": "old_rejected", "rejected_before_days": True},
+        {"candidate_pool": "old_rejected", "rejected_before_days": 0},
+        {"candidate_pool": "old_rejected", "rejected_before_days": -1},
+        {"candidate_pool": "old_rejected", "rejected_before_days": "abc"},
+        {"status_updated_before": "2026/01/01"},
+        {"status_updated_after": "not-a-date"},
+        {"free_sql": "status = 'REJECTED'"},
+    ],
+)
+def test_search_invalid_candidate_pool_filters_return_invalid_params_before_calling_service(filters):
+    class FailingIfCalledRetrievalService(FakeRetrievalService):
+        def search_safe_profiles(self, filters, return_fields, page_size, identity, cursor=None):
+            raise AssertionError("retrieval service should not be called for invalid filters")
+
+    router, audit, _ = build_router_with_retrieval(FailingIfCalledRetrievalService())
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN", request_id="req-filter")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-filter",
+            "method": "tools/call",
+            "params": {
+                "name": "search_candidate_safe_profiles",
+                "arguments": {"filters": filters},
+            },
+        },
+        identity,
+    )
+
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+    assert audit.calls[-1]["status"] == "failure"
+    assert audit.calls[-1]["error_type"] == "InvalidToolArgumentsError"
+
+
+def test_query_invalid_candidate_pool_filters_return_invalid_params_before_calling_service():
+    class FailingTalentQueryService(FakeTalentQueryService):
+        def query_facts(self, metrics, filters, group_by, identity):
+            raise AssertionError("talent query service should not be called for invalid filters")
+
+    audit = FakeAudit()
+    router = ToolRouter(
+        registry=ToolRegistry(),
+        retrieval_service=FakeRetrievalService(),
+        talent_query_service=FailingTalentQueryService(),
+        result_store=FakeResultStore(),
+        audit_service=audit,
+    )
+    handler = JsonRpcHandler(router)
+    identity = IdentityContext(user_id=7, role="HR_ADMIN", request_id="req-query-filter")
+
+    response = handler.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": "bad-query-filter",
+            "method": "tools/call",
+            "params": {
+                "name": "query_talent_pool_facts",
+                "arguments": {"filters": {"candidate_pool": "active", "status": ["SCREEN_PROCESS"]}},
+            },
+        },
+        identity,
+    )
+
+    assert response["error"]["code"] == JsonRpcError.INVALID_PARAMS
+    assert audit.calls[-1]["status"] == "failure"
+    assert audit.calls[-1]["tool_name"] == "query_talent_pool_facts"
+
+
 def test_detail_batch_too_many_ids_returns_invalid_params_before_calling_service():
     class FailingIfCalledRetrievalService(FakeRetrievalService):
         def get_safe_detail_batch(self, candidate_ids, return_fields, identity):

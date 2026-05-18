@@ -5,6 +5,7 @@
 对于保存推荐结果等有写入副作用的工具，路由层会先执行工具级角色授权。
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from hr_mcp.models.context import IdentityContext
@@ -23,6 +24,21 @@ class ToolRouter:
     SAVE_ALLOWED_ROLES = {"HR_ADMIN", "RECRUITER"}
     MAX_SEARCH_PAGE_SIZE = 300
     MAX_DETAIL_BATCH = 50
+    VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
+    CANDIDATE_FILTER_KEYS = {
+        "position_query",
+        "position_name",
+        "position_id",
+        "candidate_status",
+        "status",
+        "min_work_years",
+        "skills_any",
+        "experience_keywords_any",
+        "candidate_pool",
+        "rejected_before_days",
+        "status_updated_before",
+        "status_updated_after",
+    }
 
     def __init__(
         self,
@@ -115,6 +131,7 @@ class ToolRouter:
     def _validate_arguments(self, tool_name: str, arguments: Dict[str, Any]) -> None:
         if tool_name == "search_candidate_safe_profiles":
             self._validate_optional_dict(arguments, "filters")
+            self._validate_candidate_filters(arguments.get("filters") or {})
             self._validate_optional_string_list(arguments, "return_fields")
             self._validate_search_page_size(arguments)
             if "cursor" in arguments and arguments["cursor"] is not None and not isinstance(arguments["cursor"], str):
@@ -128,6 +145,7 @@ class ToolRouter:
             self._validate_optional_string_list(arguments, "return_fields")
         elif tool_name == "query_talent_pool_facts":
             self._validate_optional_dict(arguments, "filters")
+            self._validate_candidate_filters(arguments.get("filters") or {})
             self._validate_optional_string_list(arguments, "metrics")
             self._validate_optional_string_list(arguments, "group_by")
         elif tool_name == "save_screening_result":
@@ -165,6 +183,33 @@ class ToolRouter:
                 raise InvalidToolArgumentsError(f"search_candidate_safe_profiles.{name} must be an integer")
             if raw_value < 1 or raw_value > self.MAX_SEARCH_PAGE_SIZE:
                 raise InvalidToolArgumentsError(f"search_candidate_safe_profiles.{name} must be between 1 and 300")
+
+    def _validate_candidate_filters(self, filters: Dict[str, Any]) -> None:
+        unknown = sorted(set(filters) - self.CANDIDATE_FILTER_KEYS)
+        if unknown:
+            raise InvalidToolArgumentsError(f"Unsupported candidate filters: {', '.join(unknown)}")
+        candidate_pool = filters.get("candidate_pool")
+        if candidate_pool is not None and candidate_pool not in self.VALID_CANDIDATE_POOLS:
+            raise InvalidToolArgumentsError("filters.candidate_pool must be one of active, old_rejected, recent_rejected, hired")
+        if candidate_pool is not None and (filters.get("status") is not None or filters.get("candidate_status") is not None):
+            raise InvalidToolArgumentsError("filters.candidate_pool cannot be combined with status or candidate_status")
+        if "rejected_before_days" in filters:
+            self._validate_positive_integer_filter(filters.get("rejected_before_days"), "rejected_before_days")
+        for name in ["status_updated_before", "status_updated_after"]:
+            if name in filters and filters.get(name) is not None:
+                self._validate_yyyy_mm_dd(filters.get(name), name)
+
+    def _validate_positive_integer_filter(self, value: Any, name: str) -> None:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise InvalidToolArgumentsError(f"filters.{name} must be a positive integer")
+
+    def _validate_yyyy_mm_dd(self, value: Any, name: str) -> None:
+        if not isinstance(value, str):
+            raise InvalidToolArgumentsError(f"filters.{name} must be YYYY-MM-DD")
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise InvalidToolArgumentsError(f"filters.{name} must be YYYY-MM-DD")
 
     def _audit(self, tool_name: str, arguments: Dict[str, Any], result: Dict[str, Any], identity: IdentityContext) -> None:
         if not self.audit_service:

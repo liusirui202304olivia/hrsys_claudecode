@@ -102,3 +102,43 @@ def test_recruitment_report_skill_targets_hr_ppt_style_reports() -> None:
         assert element in content
 
     assert "不要只输出通用 Markdown 章节" in content
+
+
+def test_screening_skill_defines_candidate_pool_recommendation_strategy() -> None:
+    content = _read("skills/hr-candidate-screening/SKILL.md")
+
+    required_rules = [
+        "candidate_pool",
+        "active",
+        "old_rejected",
+        "recent_rejected",
+        "rejected_before_days",
+        "180",
+        "update_time",
+        "状态更新时间",
+        "被拒时间",
+        "优先推荐",
+        "补充考虑",
+        "暂不推荐",
+    ]
+
+    for rule in required_rules:
+        assert rule in content
+
+
+def test_analysis_and_report_skills_split_active_and_rejected_candidate_pools() -> None:
+    analysis = _read("skills/hr-talent-analysis/SKILL.md")
+    report = _read("skills/hr-recruitment-report/SKILL.md")
+
+    for content in [analysis, report]:
+        assert "active" in content
+        assert "old_rejected" in content
+        assert "recent_rejected" in content
+        assert "hired" in content
+
+
+def test_qa_skill_keeps_factual_scope_without_default_recommendation_pool() -> None:
+    content = _read("skills/hr-talent-database-qa/SKILL.md")
+
+    assert "事实问答不默认套推荐池策略" in content
+    assert "不要基于问答直接生成“推荐/不推荐”结论" in content

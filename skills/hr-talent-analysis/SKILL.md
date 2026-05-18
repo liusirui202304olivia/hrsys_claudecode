@@ -21,6 +21,15 @@ description: Use when the user asks for recruiting data analysis, candidate pool
 6. 不生成完整招聘报告；如果用户要求报告，切换到 Recruitment Report Skill。
 7. 不输出联系方式字段。
 
+候选池结构分析要拆分四类口径：
+
+- `active`：仍在招聘流程中的主候选池。
+- `old_rejected`：`status=REJECTED` 且 `update_time` 超过 180 天的历史拒绝补充池。
+- `recent_rejected`：近期被拒候选人，主要用于说明不可推荐量、拒绝压力或流程问题。
+- `hired`：已入职候选人，主要用于历史供给、成功画像和转化分析。
+
+分析可以比较这四类池的人数、岗位分布和状态变化，但不要把 `recent_rejected` 或 `hired` 写成默认可推荐人群。
+
 ## 分析维度
 
 可使用以下维度组织分析：

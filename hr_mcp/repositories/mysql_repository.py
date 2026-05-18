@@ -7,7 +7,7 @@ Repository 返回的记录仍需经过 safe view service 和 field policy 后才
 
 import base64
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
@@ -20,7 +20,14 @@ ALLOWED_CANDIDATE_FILTERS = {
     "min_work_years",
     "skills_any",
     "experience_keywords_any",
+    "candidate_pool",
+    "rejected_before_days",
+    "status_updated_before",
+    "status_updated_after",
 }
+
+VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
+DEFAULT_REJECTED_BEFORE_DAYS = 180
 
 
 class MySQLTalentRepository:
@@ -146,6 +153,24 @@ class MySQLTalentRepository:
         if filters.get("min_work_years") is not None:
             where.append("v.work_years >= %s")
             params.append(int(filters["min_work_years"]))
+        candidate_pool = filters.get("candidate_pool")
+        if candidate_pool == "active":
+            where.append("v.status NOT IN ('REJECTED', 'HIRED')")
+        elif candidate_pool == "old_rejected":
+            where.append("v.status = %s AND v.update_time <= %s")
+            params.extend(["REJECTED", self._rejected_cutoff(filters)])
+        elif candidate_pool == "recent_rejected":
+            where.append("v.status = %s AND v.update_time > %s")
+            params.extend(["REJECTED", self._rejected_cutoff(filters)])
+        elif candidate_pool == "hired":
+            where.append("v.status = %s")
+            params.append("HIRED")
+        if filters.get("status_updated_before") is not None:
+            where.append("v.update_time <= %s")
+            params.append(self._format_day_end(filters["status_updated_before"], "status_updated_before"))
+        if filters.get("status_updated_after") is not None:
+            where.append("v.update_time >= %s")
+            params.append(self._format_day_start(filters["status_updated_after"], "status_updated_after"))
         statuses = filters.get("candidate_status", filters.get("status"))
         if statuses:
             status_list = [statuses] if isinstance(statuses, str) else list(statuses)
@@ -178,6 +203,7 @@ class MySQLTalentRepository:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
         if unknown:
             raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
+        self._validate_candidate_pool_filters(filters)
 
     def _distribution(self, field: str, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         where_parts, params = self._where_parts(filters or {}, identity_scope)
@@ -198,6 +224,49 @@ class MySQLTalentRepository:
         if value < 1:
             raise ValueError("page_size must be greater than 0")
         return value
+
+    def _validate_candidate_pool_filters(self, filters: Dict[str, Any]) -> None:
+        candidate_pool = filters.get("candidate_pool")
+        if candidate_pool is not None and candidate_pool not in VALID_CANDIDATE_POOLS:
+            raise ValueError("candidate_pool must be one of active, old_rejected, recent_rejected, hired")
+        if candidate_pool is not None and (filters.get("status") is not None or filters.get("candidate_status") is not None):
+            raise ValueError("candidate_pool cannot be combined with status or candidate_status")
+        if "rejected_before_days" in filters:
+            self._validate_positive_integer(filters.get("rejected_before_days"), "rejected_before_days")
+        for key in ["status_updated_before", "status_updated_after"]:
+            if key in filters and filters.get(key) is not None:
+                self._parse_yyyy_mm_dd(filters.get(key), key)
+
+    def _rejected_cutoff(self, filters: Dict[str, Any]) -> str:
+        days = filters.get("rejected_before_days", DEFAULT_REJECTED_BEFORE_DAYS)
+        days = self._validate_positive_integer(days, "rejected_before_days")
+        cutoff_date = date.today() - timedelta(days=days)
+        return f"{cutoff_date.isoformat()} 23:59:59"
+
+    def _format_day_start(self, value: Any, name: str) -> str:
+        return f"{self._parse_yyyy_mm_dd(value, name).date().isoformat()} 00:00:00"
+
+    def _format_day_end(self, value: Any, name: str) -> str:
+        return f"{self._parse_yyyy_mm_dd(value, name).date().isoformat()} 23:59:59"
+
+    def _parse_yyyy_mm_dd(self, value: Any, name: str) -> datetime:
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be YYYY-MM-DD")
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"{name} must be YYYY-MM-DD")
+
+    def _validate_positive_integer(self, value: Any, name: str) -> int:
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must be a positive integer")
+        try:
+            integer_value = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be a positive integer")
+        if integer_value < 1:
+            raise ValueError(f"{name} must be a positive integer")
+        return integer_value
 
     def _cursor_condition(self, cursor: Optional[str]) -> Tuple[str, List[Any]]:
         if not cursor:

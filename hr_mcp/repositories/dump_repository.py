@@ -8,7 +8,7 @@
 import base64
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -22,7 +22,14 @@ ALLOWED_CANDIDATE_FILTERS = {
     "min_work_years",
     "skills_any",
     "experience_keywords_any",
+    "candidate_pool",
+    "rejected_before_days",
+    "status_updated_before",
+    "status_updated_after",
 }
+
+VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
+DEFAULT_REJECTED_BEFORE_DAYS = 180
 
 
 class DumpTalentRepository:
@@ -122,6 +129,7 @@ class DumpTalentRepository:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
         if unknown:
             raise ValueError(f"Unsupported candidate filters: {', '.join(unknown)}")
+        self._validate_candidate_pool_filters(filters)
 
     def _aggregate_rows(self, filters: Dict[str, Any], identity_scope: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         self._validate_filters(filters)
@@ -320,6 +328,10 @@ class DumpTalentRepository:
         return {candidate_id: sorted(interviewers) for candidate_id, interviewers in result.items()}
 
     def _candidate_matches(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        if not self._candidate_pool_matches(row, filters):
+            return False
+        if not self._status_update_date_matches(row, filters):
+            return False
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query and str(position_query) not in str(row.get("position_name") or ""):
             return False
@@ -340,6 +352,94 @@ class DumpTalentRepository:
             if not any(str(keyword).lower() in haystack for keyword in keywords):
                 return False
         return True
+
+    def _validate_candidate_pool_filters(self, filters: Dict[str, Any]) -> None:
+        candidate_pool = filters.get("candidate_pool")
+        if candidate_pool is not None and candidate_pool not in VALID_CANDIDATE_POOLS:
+            raise ValueError("candidate_pool must be one of active, old_rejected, recent_rejected, hired")
+        if candidate_pool is not None and (filters.get("status") is not None or filters.get("candidate_status") is not None):
+            raise ValueError("candidate_pool cannot be combined with status or candidate_status")
+        if "rejected_before_days" in filters:
+            self._validate_positive_integer(filters.get("rejected_before_days"), "rejected_before_days")
+        for key in ["status_updated_before", "status_updated_after"]:
+            if key in filters and filters.get(key) is not None:
+                self._parse_yyyy_mm_dd(filters.get(key), key)
+
+    def _candidate_pool_matches(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        candidate_pool = filters.get("candidate_pool")
+        if not candidate_pool:
+            return True
+        status = row.get("status")
+        if candidate_pool == "active":
+            return status not in {"REJECTED", "HIRED"}
+        if candidate_pool == "hired":
+            return status == "HIRED"
+        if status != "REJECTED":
+            return False
+        cutoff = self._rejected_cutoff(filters)
+        update_time = self._row_update_time(row)
+        if update_time is None:
+            return False
+        if candidate_pool == "old_rejected":
+            return update_time <= cutoff
+        if candidate_pool == "recent_rejected":
+            return update_time > cutoff
+        return True
+
+    def _status_update_date_matches(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        if filters.get("status_updated_before") is None and filters.get("status_updated_after") is None:
+            return True
+        update_time = self._row_update_time(row)
+        if filters.get("status_updated_before") is not None:
+            before = self._parse_yyyy_mm_dd(filters["status_updated_before"], "status_updated_before").replace(hour=23, minute=59, second=59)
+            if update_time is None or update_time > before:
+                return False
+        if filters.get("status_updated_after") is not None:
+            after = self._parse_yyyy_mm_dd(filters["status_updated_after"], "status_updated_after")
+            if update_time is None or update_time < after:
+                return False
+        return True
+
+    def _rejected_cutoff(self, filters: Dict[str, Any]) -> datetime:
+        days = filters.get("rejected_before_days", DEFAULT_REJECTED_BEFORE_DAYS)
+        days = self._validate_positive_integer(days, "rejected_before_days")
+        cutoff_date = date.today() - timedelta(days=days)
+        return datetime(cutoff_date.year, cutoff_date.month, cutoff_date.day, 23, 59, 59)
+
+    def _row_update_time(self, row: Dict[str, Any]) -> Optional[datetime]:
+        value = row.get("update_time")
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date):
+            return datetime(value.year, value.month, value.day)
+        text = str(value)
+        for fmt, length in [("%Y-%m-%d %H:%M:%S", 19), ("%Y-%m-%d", 10)]:
+            try:
+                return datetime.strptime(text[:length], fmt)
+            except ValueError:
+                continue
+        raise ValueError("update_time must be YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+
+    def _parse_yyyy_mm_dd(self, value: Any, name: str) -> datetime:
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be YYYY-MM-DD")
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"{name} must be YYYY-MM-DD")
+
+    def _validate_positive_integer(self, value: Any, name: str) -> int:
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must be a positive integer")
+        try:
+            integer_value = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be a positive integer")
+        if integer_value < 1:
+            raise ValueError(f"{name} must be a positive integer")
+        return integer_value
 
     def _search_text(self, row: Dict[str, Any]) -> str:
         fields = [
