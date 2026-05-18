@@ -31,3 +31,17 @@ curl -sS "$URL/mcp" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query_talent_pool_facts","arguments":{"metrics":["count"],"group_by":["position_name"]}}}'
 echo
+
+echo "Checking describe_hr_safe_schema"
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"describe_hr_safe_schema","arguments":{}}}'
+echo
+
+echo "Checking query_hr_safe_sql"
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"deployment smoke","sql":"SELECT candidate_id, name, status FROM v_candidate_agent_safe LIMIT 5"}}}'
+echo
