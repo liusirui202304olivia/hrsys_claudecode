@@ -171,6 +171,15 @@ def test_dump_repository_filters_status_keyword_and_work_years(tmp_path: Path):
     assert [row["name"] for row in candidates] == ["张三"]
 
 
+def test_dump_repository_position_query_matches_position_name_or_jd(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    page = repo.search_candidates({"position_query": "系统软件"}, page_size=10)
+
+    assert [row["name"] for row in page["items"]] == ["李四"]
+    assert page["items"][0]["position_name"] == "应用软件开发工程师"
+
+
 def test_dump_repository_computes_position_distribution(tmp_path: Path):
     repo = DumpTalentRepository(write_dump(tmp_path))
 
@@ -305,7 +314,15 @@ def test_mysql_repository_count_and_distributions_use_sql_aggregates():
     assert "search_candidates(filters" not in inspect.getsource(MySQLTalentRepository)
 
 
-def test_mysql_repository_recruiter_scope_uses_aggregated_follower_ids():
+@pytest.mark.parametrize(
+    "identity_scope",
+    [
+        {"role": "RECRUITER", "user_id": 42},
+        {"role": "DEPARTMENT_MANAGER", "department_id": 7},
+        {"role": "INTERVIEWER", "user_id": 42},
+    ],
+)
+def test_mysql_repository_business_roles_do_not_add_row_scope_filters(identity_scope):
     class RecordingRepo(MySQLTalentRepository):
         def __init__(self):
             super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
@@ -321,12 +338,65 @@ def test_mysql_repository_recruiter_scope_uses_aggregated_follower_ids():
 
     repo = RecordingRepo()
 
-    repo.search_candidates({}, page_size=10, identity_scope={"role": "RECRUITER", "user_id": 42})
+    repo.search_candidates({}, page_size=10, identity_scope=identity_scope)
     combined_sql = "\n".join(repo.sqls)
 
-    assert "FIND_IN_SET(%s, COALESCE(v.follower_ids, ''))" in combined_sql
+    assert "FIND_IN_SET(%s, COALESCE(v.follower_ids, ''))" not in combined_sql
+    assert "FIND_IN_SET(%s, COALESCE(v.interviewer_ids, ''))" not in combined_sql
+    assert "v.proposed_department_id = %s" not in combined_sql
+    assert "v.hr_id = %s" not in combined_sql
     assert re.search(r"\bv\.follower_id\b", combined_sql) is None
-    assert repo.params_list[0][:2] == [42, 42]
+    assert repo.params_list[0] == [11]
+
+
+def test_mysql_repository_position_query_matches_position_name_or_jd():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+            self.params_list = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            self.params_list.append(params)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 1}]
+            return [{"candidate_id": 1, "update_time": "2026-01-01 00:00:00"}]
+
+    repo = RecordingRepo()
+
+    repo.search_candidates({"position_query": "系统软件"}, page_size=10)
+    search_sql = repo.sqls[0]
+
+    assert "(v.position_name LIKE %s OR v.position_jd LIKE %s)" in search_sql
+    assert repo.params_list[0][:2] == ["%系统软件%", "%系统软件%"]
+
+
+def test_mysql_repository_skill_and_experience_keywords_use_any_or_semantics():
+    class RecordingRepo(MySQLTalentRepository):
+        def __init__(self):
+            super().__init__({"host": "localhost", "user": "u", "password": "p", "database": "d"})
+            self.sqls = []
+            self.params_list = []
+
+        def _fetch_all(self, sql, params):
+            self.sqls.append(sql)
+            self.params_list.append(params)
+            if "COUNT(*) AS total_count" in sql:
+                return [{"total_count": 1}]
+            return [{"candidate_id": 1, "update_time": "2026-01-01 00:00:00"}]
+
+    repo = RecordingRepo()
+
+    repo.search_candidates(
+        {"skills_any": ["C++", "Python"], "experience_keywords_any": ["gem5"]},
+        page_size=10,
+    )
+    search_sql = repo.sqls[0]
+
+    assert search_sql.count("v.skills LIKE %s") == 3
+    assert " OR (v.skills LIKE %s OR v.experiences LIKE %s OR v.project_experiences LIKE %s)" in search_sql
+    assert "AND (v.skills LIKE %s OR v.experiences LIKE %s OR v.project_experiences LIKE %s)\n            AND" not in search_sql
 
 
 def test_mysql_repository_candidate_pool_filters_are_controlled_sql_conditions():

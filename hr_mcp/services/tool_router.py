@@ -21,7 +21,7 @@ class InvalidToolArgumentsError(ValueError):
 
 
 class ToolRouter:
-    SAVE_ALLOWED_ROLES = {"HR_ADMIN", "RECRUITER"}
+    SAVE_ALLOWED_ROLES = {"HR_ADMIN", "RECRUITER", "DEPARTMENT_MANAGER", "INTERVIEWER"}
     MAX_SEARCH_PAGE_SIZE = 300
     MAX_DETAIL_BATCH = 50
     VALID_CANDIDATE_POOLS = {"active", "old_rejected", "recent_rejected", "hired"}
@@ -126,7 +126,7 @@ class ToolRouter:
 
     def _assert_can_save(self, identity: IdentityContext) -> None:
         if identity.role not in self.SAVE_ALLOWED_ROLES:
-            raise PermissionError("save_screening_result requires HR_ADMIN or RECRUITER role")
+            raise PermissionError("save_screening_result requires HR_ADMIN, RECRUITER, DEPARTMENT_MANAGER or INTERVIEWER role")
 
     def _validate_arguments(self, tool_name: str, arguments: Dict[str, Any]) -> None:
         if tool_name == "search_candidate_safe_profiles":

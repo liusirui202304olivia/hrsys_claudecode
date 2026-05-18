@@ -368,6 +368,31 @@ def test_router_denies_readonly_save_screening_result():
         )
 
 
+@pytest.mark.parametrize("role", ["HR_ADMIN", "RECRUITER", "DEPARTMENT_MANAGER", "INTERVIEWER"])
+def test_router_allows_business_roles_to_save_screening_result(role):
+    router, _, result_store = build_router()
+    identity = IdentityContext(user_id=7, role=role)
+
+    result = router.call_tool(
+        "save_screening_result",
+        {
+            "task_id": "task-1",
+            "standard_ref": "standard_markdown/xiaoman.md",
+            "recommended_candidates": [
+                {
+                    "candidate_id": 1,
+                    "recommend_reason": "安全画像证据匹配目标岗位标准，来源岗位不同已作为风险说明。",
+                    "risk_points": ["跨岗位推荐，需要面试验证目标岗位适配度"],
+                }
+            ],
+        },
+        identity,
+    )
+
+    assert result["saved"]["saved"] is True
+    assert result_store.calls[-1]["recommended_candidates"][0]["candidate_id"] == 1
+
+
 def test_jsonrpc_maps_permission_error_to_forbidden_and_audits_failure():
     router, audit, _ = build_router()
     handler = JsonRpcHandler(router)

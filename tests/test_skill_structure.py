@@ -126,6 +126,27 @@ def test_screening_skill_defines_candidate_pool_recommendation_strategy() -> Non
         assert rule in content
 
 
+def test_screening_skill_defines_full_pool_cross_position_strategy() -> None:
+    content = _read("skills/hr-candidate-screening/SKILL.md")
+
+    required_rules = [
+        "全库安全画像",
+        "不要默认用目标岗位名做 position_query 窄筛",
+        "candidate.position_id",
+        "candidate.position_name",
+        "来源岗位",
+        "目标岗位",
+        "跨岗位推荐",
+        "关联岗位",
+        "近似岗位",
+        "skills_any",
+        "experience_keywords_any",
+    ]
+
+    for rule in required_rules:
+        assert rule in content
+
+
 def test_analysis_and_report_skills_split_active_and_rejected_candidate_pools() -> None:
     analysis = _read("skills/hr-talent-analysis/SKILL.md")
     report = _read("skills/hr-recruitment-report/SKILL.md")

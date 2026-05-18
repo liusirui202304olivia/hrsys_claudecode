@@ -145,8 +145,9 @@ class MySQLTalentRepository:
         params = list(params)
         position_query = filters.get("position_query") or filters.get("position_name")
         if position_query:
-            where.append("v.position_name LIKE %s")
-            params.append(f"%{position_query}%")
+            where.append("(v.position_name LIKE %s OR v.position_jd LIKE %s)")
+            like_value = f"%{position_query}%"
+            params.extend([like_value, like_value])
         if filters.get("position_id") is not None:
             where.append("v.position_id = %s")
             params.append(int(filters["position_id"]))
@@ -177,23 +178,19 @@ class MySQLTalentRepository:
             where.append("v.status IN (" + ",".join(["%s"] * len(status_list)) + ")")
             params.extend(status_list)
         keywords = list(filters.get("skills_any") or []) + list(filters.get("experience_keywords_any") or [])
-        for keyword in keywords:
-            where.append("(v.skills LIKE %s OR v.experiences LIKE %s OR v.project_experiences LIKE %s)")
-            like_value = f"%{keyword}%"
-            params.extend([like_value, like_value, like_value])
+        if keywords:
+            keyword_parts = []
+            for keyword in keywords:
+                keyword_parts.append("(v.skills LIKE %s OR v.experiences LIKE %s OR v.project_experiences LIKE %s)")
+                like_value = f"%{keyword}%"
+                params.extend([like_value, like_value, like_value])
+            where.append("(" + " OR ".join(keyword_parts) + ")")
         return where, params
 
     def _scope_where_parts(self, identity_scope: Optional[Dict[str, Any]]) -> Tuple[List[str], List[Any]]:
         scope = identity_scope or {}
         if scope.get("deny_all"):
             return ["1 = 0"], []
-        role = scope.get("role")
-        if role == "RECRUITER":
-            return ["(v.hr_id = %s OR FIND_IN_SET(%s, COALESCE(v.follower_ids, '')))"], [scope.get("user_id"), scope.get("user_id")]
-        if role == "DEPARTMENT_MANAGER":
-            return ["v.proposed_department_id = %s"], [scope.get("department_id")]
-        if role == "INTERVIEWER":
-            return ["FIND_IN_SET(%s, COALESCE(v.interviewer_ids, ''))"], [scope.get("user_id")]
         return [], []
 
     def _where_sql(self, where_parts: List[str]) -> str:

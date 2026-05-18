@@ -1,7 +1,7 @@
 ﻿"""候选人召回与人才库查询服务测试。
 
 该文件验证候选人明细必须经过安全投影、高权限字段对普通角色拒绝、批量详情限制和 READONLY 明细禁止访问。
-同时覆盖聚合事实查询的无联系方式输出，以及招聘者等角色的聚合范围收敛。
+同时覆盖聚合事实查询的无联系方式输出，以及业务角色默认全库安全画像可见。
 这些测试保护 CandidateRetrievalService、TalentPoolQueryService 和 PermissionService 的核心安全边界。
 """
 
@@ -101,27 +101,7 @@ class FakeRepository:
         identity_scope = identity_scope or {}
         if identity_scope.get("deny_all"):
             return []
-        if identity_scope.get("role") == "RECRUITER":
-            user_id = identity_scope.get("user_id")
-            return [row for row in rows if row.get("hr_id") == user_id or self._follower_matches(row, user_id)]
-        if identity_scope.get("role") == "DEPARTMENT_MANAGER":
-            department_id = identity_scope.get("department_id")
-            return [row for row in rows if row.get("proposed_department_id") == department_id]
-        if identity_scope.get("role") == "INTERVIEWER":
-            user_id = str(identity_scope.get("user_id"))
-            return [row for row in rows if user_id in {str(item) for item in row.get("interviewer_ids", [])}]
         return list(rows)
-
-    def _follower_matches(self, row, user_id):
-        if row.get("follower_id") == user_id:
-            return True
-        follower_ids = row.get("follower_ids") or []
-        if isinstance(follower_ids, str):
-            follower_ids = [item.strip() for item in follower_ids.split(",") if item.strip()]
-        elif not isinstance(follower_ids, (list, tuple, set)):
-            follower_ids = [follower_ids]
-        return str(user_id) in {str(item).strip() for item in follower_ids}
-
 
 def make_services():
     permission = PermissionService()
@@ -132,7 +112,7 @@ def make_services():
     return retrieval, query
 
 
-def test_search_profiles_returns_only_safe_fields_for_recruiter_scope():
+def test_search_profiles_returns_all_safe_profiles_for_recruiter():
     retrieval, _ = make_services()
     identity = IdentityContext(user_id=2, role="RECRUITER")
 
@@ -143,8 +123,11 @@ def test_search_profiles_returns_only_safe_fields_for_recruiter_scope():
         identity=identity,
     )
 
-    assert result["candidates"] == [{"candidate_id": 1, "name": "张三", "gender": "MALE", "status": "SCREEN_PROCESS"}]
-    assert result["total_count"] == 1
+    assert result["candidates"] == [
+        {"candidate_id": 1, "name": "张三", "gender": "MALE", "status": "SCREEN_PROCESS"},
+        {"candidate_id": 2, "name": "李四", "gender": "FEMALE", "status": "REJECTED"},
+    ]
+    assert result["total_count"] == 2
     assert result["has_more"] is False
     assert result["next_cursor"] is None
 
@@ -241,7 +224,33 @@ def test_readonly_viewer_cannot_retrieve_candidate_profiles():
     assert result["total_count"] == 0
 
 
-def test_query_facts_applies_recruiter_scope_to_aggregates():
+@pytest.mark.parametrize(
+    "identity",
+    [
+        IdentityContext(user_id=2, role="RECRUITER"),
+        IdentityContext(user_id=8, role="DEPARTMENT_MANAGER", department_id=7),
+        IdentityContext(user_id=42, role="INTERVIEWER"),
+    ],
+)
+def test_business_roles_can_retrieve_full_safe_candidate_pool(identity):
+    retrieval, _ = make_services()
+
+    result = retrieval.search_safe_profiles(
+        filters={},
+        return_fields=["candidate_id", "name"],
+        page_size=10,
+        identity=identity,
+    )
+
+    assert result["candidates"] == [
+        {"candidate_id": 1, "name": "张三"},
+        {"candidate_id": 2, "name": "李四"},
+    ]
+    assert result["total_count"] == 2
+    assert retrieval.repository.search_calls[-1]["identity_scope"] == {}
+
+
+def test_query_facts_uses_full_safe_pool_for_recruiter_aggregates():
     retrieval, query = make_services()
     identity = IdentityContext(user_id=2, role="RECRUITER")
 
@@ -252,76 +261,14 @@ def test_query_facts_applies_recruiter_scope_to_aggregates():
         identity=identity,
     )
 
-    assert result["count"] == 1
+    assert result["count"] == 2
     assert retrieval.repository.search_calls == []
-    assert retrieval.repository.count_calls[-1]["identity_scope"] == {"role": "RECRUITER", "user_id": 2}
-    assert result["position_distribution"] == [{"position_name": "芯片建模工程师", "count": 1}]
-    assert result["status_distribution"] == [{"status": "SCREEN_PROCESS", "count": 1}]
-
-
-def test_recruiter_scope_allows_candidate_matched_by_follower_ids():
-    retrieval, _ = make_services()
-    retrieval.repository.records = [
-        {
-            "id": 3,
-            "candidate_id": 3,
-            "name": "王五",
-            "status": "SCREEN_PROCESS",
-            "hr_id": 7,
-            "follower_ids": "42,99",
-            "position_name": "SOC设计工程师",
-        }
+    assert retrieval.repository.count_calls[-1]["identity_scope"] == {}
+    assert result["position_distribution"] == [
+        {"position_name": "应用软件开发工程师", "count": 1},
+        {"position_name": "芯片建模工程师", "count": 1},
     ]
-    identity = IdentityContext(user_id=42, role="RECRUITER")
-
-    result = retrieval.search_safe_profiles(
-        filters={},
-        return_fields=["candidate_id", "name"],
-        page_size=10,
-        identity=identity,
-    )
-
-    assert result["candidates"] == [{"candidate_id": 3, "name": "王五"}]
-    assert result["total_count"] == 1
-
-
-def test_recruiter_scope_does_not_match_follower_ids_by_substring():
-    retrieval, _ = make_services()
-    retrieval.repository.records = [
-        {
-            "id": 4,
-            "candidate_id": 4,
-            "name": "赵六",
-            "status": "SCREEN_PROCESS",
-            "hr_id": 7,
-            "follower_ids": "142,99",
-            "position_name": "SOC设计工程师",
-        }
+    assert result["status_distribution"] == [
+        {"status": "REJECTED", "count": 1},
+        {"status": "SCREEN_PROCESS", "count": 1},
     ]
-    identity = IdentityContext(user_id=42, role="RECRUITER")
-
-    result = retrieval.search_safe_profiles(
-        filters={},
-        return_fields=["candidate_id", "name"],
-        page_size=10,
-        identity=identity,
-    )
-
-    assert result["candidates"] == []
-    assert result["total_count"] == 0
-
-
-def test_interviewer_scope_uses_joined_interviewer_ids():
-    retrieval, _ = make_services()
-    retrieval.repository.records[0]["interviewer_ids"] = [42, 43]
-    retrieval.repository.records[1]["interviewer_ids"] = [99]
-    identity = IdentityContext(user_id=42, role="INTERVIEWER")
-
-    result = retrieval.search_safe_profiles(
-        filters={},
-        return_fields=["candidate_id", "name"],
-        page_size=10,
-        identity=identity,
-    )
-
-    assert result["candidates"] == [{"candidate_id": 1, "name": "张三"}]

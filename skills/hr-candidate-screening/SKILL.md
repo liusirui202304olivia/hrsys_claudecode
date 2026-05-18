@@ -46,7 +46,7 @@ description: Use when the user asks to screen, rank, recommend, or explain candi
 
 1. 识别用户目标岗位，映射到上述标准文件和数据库岗位名。
 2. 直接读取对应 Markdown 标准全文。
-3. 按“候选人召回与推荐池策略”调用 `search_candidate_safe_profiles` 召回安全候选人画像，优先用数据库岗位名做 `position_query`。
+3. 按“候选人召回与推荐池策略”调用 `search_candidate_safe_profiles` 召回全库安全画像。不要默认用目标岗位名做 position_query 窄筛。
 4. 如果候选人证据不足，调用 `get_candidate_safe_detail_batch` 补充安全详情。
 5. 对每个候选人逐条对照 Markdown 标准，分为优先推荐、补充考虑、暂不推荐。
 6. 推荐理由必须引用候选人安全画像中的事实证据，不要泛泛而谈。
@@ -56,35 +56,66 @@ description: Use when the user asks to screen, rank, recommend, or explain candi
 
 ## 候选人召回与推荐池策略
 
-1. 默认先调用 `search_candidate_safe_profiles`，`filters` 使用：
+1. 默认先调用 `search_candidate_safe_profiles`，从全库安全画像的 `active` 池做宽召回。根据 Markdown 岗位标准提取核心技能、项目经历、领域关键词，`filters` 使用：
 
    ```json
-   {"position_query": "<数据库岗位名>", "candidate_pool": "active"}
+   {
+     "candidate_pool": "active",
+     "skills_any": ["<标准中的核心技能1>", "<标准中的核心技能2>"],
+     "experience_keywords_any": ["<标准中的项目/领域关键词1>", "<标准中的项目/领域关键词2>"]
+   }
    ```
 
-   只从仍在招聘流程中的候选人里做第一轮推荐。
+   只从仍在招聘流程中的候选人里做第一轮推荐。`skills_any` 和 `experience_keywords_any` 是宽召回条件，命中任一关键词即可进入候选池；精筛和推荐判断由本 Skill 对照 Markdown 标准完成。
 
-2. 如果 `active` 池候选人不足，或用户明确要求“扩大范围/捞历史候选人”，再调用：
+2. `candidate.position_id`、`candidate.position_name`、`position_jd` 是候选人的来源岗位或当前归属岗位，不是本次推荐的目标岗位。来源岗位不一致不能直接排除候选人。
+
+3. 必须主动考虑关联岗位和近似岗位候选人：如果候选人的技术栈、项目经历、行业经验、岗位 JD 与目标岗位标准强相关，即使原 `position_id` 属于其他岗位，也可以作为跨岗位推荐候选人。
+
+4. `position_query` 只能作为来源岗位/关联岗位辅助召回条件，不能作为默认唯一过滤条件。只有在需要补充某类关联岗位来源候选人时才使用，例如：
 
    ```json
-   {"position_query": "<数据库岗位名>", "candidate_pool": "old_rejected", "rejected_before_days": 180}
+   {
+     "candidate_pool": "active",
+     "position_query": "<关联岗位或近似岗位关键词>",
+     "skills_any": ["<核心技能>"]
+   }
+   ```
+
+5. 如果 `active` 池候选人不足，或用户明确要求“扩大范围/捞历史候选人”，再调用：
+
+   ```json
+   {
+     "candidate_pool": "old_rejected",
+     "rejected_before_days": 180,
+     "skills_any": ["<标准中的核心技能1>", "<标准中的核心技能2>"],
+     "experience_keywords_any": ["<标准中的项目/领域关键词1>", "<标准中的项目/领域关键词2>"]
+   }
    ```
 
    只考虑 `status=REJECTED` 且 `update_time` 距今超过 180 天的候选人。
 
-3. 不要推荐 `recent_rejected` 候选人。近期被拒候选人只能出现在“不推荐/暂不推荐”或分析说明中。
+6. 不要推荐 `recent_rejected` 候选人。近期被拒候选人只能出现在“不推荐/暂不推荐”或分析说明中。
 
-4. `hired` / `HIRED` 候选人默认不进入推荐池，只能用于人才画像、历史供给或报告分析。
+7. `hired` / `HIRED` 候选人默认不进入推荐池，只能用于人才画像、历史供给或报告分析。
 
-5. `old_rejected` 候选人只有高度匹配 Markdown 岗位标准时才可推荐，并必须标注为“历史拒绝补充考虑”，不能和 `active` 候选人混在同一优先级里。
+8. `old_rejected` 候选人只有高度匹配 Markdown 岗位标准时才可推荐，并必须标注为“历史拒绝补充考虑”，不能和 `active` 候选人混在同一优先级里。
 
-6. `old_rejected` 推荐理由必须说明：
+9. `old_rejected` 推荐理由必须说明：
 
    - 候选人虽历史被拒，但哪些证据强匹配当前岗位标准；
    - `update_time` 是状态更新时间，在 `REJECTED` 状态下视作被拒时间；
    - `reject_stage` 或拒绝原因缺失时，必须作为风险点。
 
-7. 推荐输出必须分层：
+10. 跨岗位推荐必须说明：
+
+   - 目标岗位是什么；
+   - 候选人来源岗位是什么；
+   - 为什么来源岗位不同但仍匹配目标岗位标准；
+   - 跨岗位风险是什么；
+   - 面试中需要验证哪些目标岗位能力。
+
+11. 推荐输出必须分层：
 
    - 优先推荐：`active` 池强匹配候选人；
    - 补充考虑：`old_rejected` 且超过 180 天、强匹配候选人；
@@ -98,8 +129,13 @@ description: Use when the user asks to screen, rank, recommend, or explain candi
 - 查询范围和召回数量
 - 推荐候选人列表
 - 每人的 `candidate_id`
+- 目标岗位
+- 候选人来源岗位
+- 是否跨岗位推荐
+- 匹配证据
 - 推荐理由
 - 风险点
+- 跨岗位风险
 - 面试验证建议
 - 不推荐或待确认的简要原因
 

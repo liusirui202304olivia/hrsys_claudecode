@@ -140,16 +140,6 @@ class DumpTalentRepository:
         scope = identity_scope or {}
         if scope.get("deny_all"):
             return []
-        role = scope.get("role")
-        if role == "RECRUITER":
-            user_id = scope.get("user_id")
-            return [row for row in rows if row.get("hr_id") == user_id or self._follower_matches(row, user_id)]
-        if role == "DEPARTMENT_MANAGER":
-            department_id = scope.get("department_id")
-            return [row for row in rows if row.get("proposed_department_id") == department_id]
-        if role == "INTERVIEWER":
-            user_id = str(scope.get("user_id"))
-            return [row for row in rows if user_id in {str(item) for item in row.get("interviewer_ids", [])}]
         return list(rows)
 
     def _validate_page_size(self, page_size: int) -> int:
@@ -333,8 +323,14 @@ class DumpTalentRepository:
         if not self._status_update_date_matches(row, filters):
             return False
         position_query = filters.get("position_query") or filters.get("position_name")
-        if position_query and str(position_query) not in str(row.get("position_name") or ""):
-            return False
+        if position_query:
+            position_text = json.dumps(
+                [row.get("position_name"), row.get("position_jd")],
+                ensure_ascii=False,
+                default=str,
+            )
+            if str(position_query).lower() not in position_text.lower():
+                return False
         if filters.get("position_id") is not None and row.get("position_id") != filters.get("position_id"):
             return False
         statuses = filters.get("candidate_status", filters.get("status"))
@@ -444,16 +440,6 @@ class DumpTalentRepository:
     def _search_text(self, row: Dict[str, Any]) -> str:
         fields = [
             row.get("name"), row.get("college"), row.get("major"), row.get("position_name"),
-            row.get("experiences"), row.get("project_experiences"), row.get("skills"),
+            row.get("position_jd"), row.get("experiences"), row.get("project_experiences"), row.get("skills"),
         ]
         return json.dumps(fields, ensure_ascii=False, default=str).lower()
-
-    def _follower_matches(self, row: Dict[str, Any], user_id: Any) -> bool:
-        if row.get("follower_id") == user_id:
-            return True
-        follower_ids = row.get("follower_ids") or []
-        if isinstance(follower_ids, str):
-            follower_ids = [item.strip() for item in follower_ids.split(",") if item.strip()]
-        elif not isinstance(follower_ids, (list, tuple, set)):
-            follower_ids = [follower_ids]
-        return str(user_id) in {str(follower_id).strip() for follower_id in follower_ids}
