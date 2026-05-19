@@ -68,6 +68,12 @@ ALLOWED_DISTRIBUTIONS = {
 class MySQLTalentRepository:
     SAFE_VIEW = "v_candidate_agent_safe"
     PRIVILEGED_VIEW = "v_candidate_agent_privileged"
+    INTERVIEW_SAFE_VIEWS = [
+        "v_candidate_interview_safe",
+        "v_candidate_interview_evaluate_safe",
+        "v_candidate_interview_question_safe",
+        "v_candidate_screen_evaluate_safe",
+    ]
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -87,7 +93,7 @@ class MySQLTalentRepository:
             )
             try:
                 with connection.cursor() as cursor:
-                    for view_name in [self.SAFE_VIEW, self.PRIVILEGED_VIEW]:
+                    for view_name in [self.SAFE_VIEW, self.PRIVILEGED_VIEW] + self.INTERVIEW_SAFE_VIEWS:
                         cursor.execute(f"SELECT candidate_id FROM {view_name} LIMIT 1")
             finally:
                 connection.close()

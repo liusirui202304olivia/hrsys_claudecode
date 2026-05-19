@@ -1,22 +1,29 @@
 ---
 name: hr-recruitment-report
 safe_sql_guidance: query_hr_safe_sql, describe_hr_safe_schema, 安全 SQL, 业务判断
-description: Use when the user asks for HR recruiting reports, recruiting funnel analysis, talent pool summary slides, weekly monthly quarterly reports, or PPT-style recruiting summaries.
+description: 当用户要求 HR 招聘报告、招聘漏斗分析、候选池汇报页、周报、月报、季报或 PPT 化招聘总结时使用。
 ---
 
-## 安全 SQL 报告取数补充
-
-报告需要的漏斗、趋势、状态结构、来源结构、拟入职名单和候选人样本，可以用 `query_talent_pool_facts` 获取固定聚合；当报告维度更灵活时，可以调用 `describe_hr_safe_schema` 后用 `query_hr_safe_sql` 查询安全 view。安全 SQL 只负责取数；业务判断、报告结构、PPT 化表达、风险点和行动建议仍由本 Skill 完成。
-
-涉及“准备入职”的报告默认按 `proposed_join_date`，排除 `REJECTED`、`HIRED`；报告必须写清楚时间范围、状态口径和查询字段。
-
-# Recruitment Report Skill 招聘汇报生成
+# 招聘汇报生成 Skill
 
 ## 适用场景
 
 当用户要求生成招聘报告、候选池汇报、招聘漏斗分析、周报、月报、季报、年终招聘总结、PPT 汇报页内容时使用本 Skill。
 
 本 Skill 负责把安全数据和业务判断组织成 HR 可汇报的页面内容。HR MCP/API 后端不生成报告，只提供安全候选人数据、事实统计和结果保存能力。
+
+## 当前可用数据能力
+
+- 固定统计：报告需要的漏斗、趋势、状态结构、来源结构、拟入职名单和候选人样本，优先用 `query_talent_pool_facts` 和 `search_candidate_safe_profiles` 获取。
+- 安全详情：重点候选人样本可用 `get_candidate_safe_detail_batch` 补充可见详情。
+- 灵活取数：当报告维度更灵活时，先调用 `describe_hr_safe_schema`，再用 `query_hr_safe_sql` 查询安全 view。安全 SQL 只负责取数；业务判断、报告结构、PPT 化表达、风险点和行动建议仍由本 Skill 完成。
+- 候选人基础 view：`v_candidate_agent_safe` 可用于候选池规模、岗位结构、来源结构、状态结构、拟入职时间和时间趋势。
+- 面试记录 view：`v_candidate_interview_safe` 可用于面试阶段、面试类型、面试状态和面试时间趋势。
+- 面试评价 view：`v_candidate_interview_evaluate_safe` 可用于评价结果、面试反馈、候选人/岗位/面试官维度分析。
+- 评分明细 view：`v_candidate_interview_question_safe` 可用于平均分、评分分布、题目维度、问答明细和面试官评分对比。
+- 初筛评价 view：`v_candidate_screen_evaluate_safe` 可用于初筛结果、初筛反馈和初筛通过/淘汰口径。
+
+涉及“准备入职”的报告默认按 `proposed_join_date`，排除 `REJECTED`、`HIRED`；报告必须写清楚时间范围、状态口径和查询字段。禁止查询原表：`hr_interview`、`hr_interview_evaluate`、`hr_screen_evaluate`，也禁止查询联系方式、面试链接、日程 ID、平台内部 ID 等未列入 schema 的字段。
 
 ## 核心定位
 

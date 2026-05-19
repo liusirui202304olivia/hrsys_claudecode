@@ -45,3 +45,24 @@ curl -sS "$URL/mcp" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"deployment smoke","sql":"SELECT candidate_id, name, status FROM v_candidate_agent_safe LIMIT 5"}}}'
 echo
+
+echo "Checking interview evaluation safe SQL"
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"deployment smoke interview evaluation","sql":"SELECT candidate_id, candidate_name, feedback, evaluation_result FROM v_candidate_interview_evaluate_safe LIMIT 5"}}}'
+echo
+
+echo "Checking interview question aggregate safe SQL"
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"deployment smoke interview score aggregate","sql":"SELECT interviewer_id, AVG(score) AS avg_score, COUNT(*) AS count FROM v_candidate_interview_question_safe GROUP BY interviewer_id LIMIT 5"}}}'
+echo
+
+echo "Checking screen evaluation safe SQL"
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"deployment smoke screen evaluation","sql":"SELECT candidate_id, candidate_name, feedback, screen_result FROM v_candidate_screen_evaluate_safe LIMIT 5"}}}'
+echo

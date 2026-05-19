@@ -94,4 +94,7 @@ def test_check_script_covers_health_ready_tools_and_facts_without_jq():
     assert "/readyz" in script
     assert "\"method\":\"tools/list\"" in script
     assert "query_talent_pool_facts" in script
+    assert "v_candidate_interview_evaluate_safe" in script
+    assert "v_candidate_interview_question_safe" in script
+    assert "v_candidate_screen_evaluate_safe" in script
     assert "jq" not in script.lower()

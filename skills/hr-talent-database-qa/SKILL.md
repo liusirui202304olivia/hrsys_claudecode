@@ -1,9 +1,9 @@
 ---
 name: hr-talent-database-qa
-description: Use when the user asks factual questions about the HR talent database, counts, distributions, status, sources, or safe candidate details.
+description: 当用户询问 HR 人才库事实、数量、分布、状态、来源或候选人安全明细时使用。
 ---
 
-# Talent Database QA Skill 人才库业务问答
+# 人才库业务问答 Skill
 
 ## 适用场景
 
@@ -15,6 +15,14 @@ description: Use when the user asks factual questions about the HR talent databa
 - “某候选人的安全画像里有什么信息？”
 
 本 Skill 的目标是准确回答事实，不做筛选推荐结论，不生成报告。
+
+## 当前可用数据能力
+
+- 固定统计：优先用 `query_talent_pool_facts` 获取总量、岗位分布、状态分布、来源分布等常见事实。
+- 候选人明细：用 `search_candidate_safe_profiles` 按姓名、岗位、状态或安全条件检索候选人画像；必要时用 `get_candidate_safe_detail_batch` 补充安全详情。
+- 开放式安全 SQL：当枚举工具覆盖不了用户问题时，先调用 `describe_hr_safe_schema`，再用 `query_hr_safe_sql` 查询安全 view。
+- 候选人基础 view：`v_candidate_agent_safe` 可用于候选人状态、岗位、来源、拟入职时间、创建时间、更新时间、技能和经历等事实查询。
+- 面试和初筛 view：需要面试记录、面试评价、评分明细、问答明细、面试官统计或初筛评价时，可查询 `v_candidate_interview_safe`、`v_candidate_interview_evaluate_safe`、`v_candidate_interview_question_safe`、`v_candidate_screen_evaluate_safe`。
 
 ## 工作流
 
@@ -75,3 +83,16 @@ WHERE proposed_join_date BETWEEN '2026-05-01' AND '2026-05-31'
 ORDER BY proposed_join_date ASC
 LIMIT 100
 ```
+
+## 面试与初筛评价查询能力
+
+当事实问答涉及面试记录、面试评价、面试评分、题目/回答明细、面试官统计或初筛评价时，先调用 `describe_hr_safe_schema`，确认字段和可聚合维度，再调用 `query_hr_safe_sql` 查询安全 view。
+
+当前可用的评价类安全 view：
+
+- `v_candidate_interview_safe`：面试记录、面试类型、面试时间和面试状态。
+- `v_candidate_interview_evaluate_safe`：面试评价文本、`evaluate_data`、`question_data` 和 `evaluation_result`。
+- `v_candidate_interview_question_safe`：从评价 JSON 拆出的评分、题目、回答、反馈和维度明细，适合做 `AVG(score)`、题目维度和面试官评分聚合。
+- `v_candidate_screen_evaluate_safe`：初筛评价文本和 `screen_result`。
+
+禁止查询原表：`hr_interview`、`hr_interview_evaluate`、`hr_screen_evaluate`。也禁止查询 `describe_hr_safe_schema` 未列出的字段。Agent 根据用户问题选择候选人画像、面试记录、评价文本、评分明细或聚合统计；业务解释由本 Skill 指导，安全边界由 MCP/API 后端控制。

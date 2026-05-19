@@ -54,7 +54,7 @@ HR_RESULT_PATH=runtime/results/screening_results.jsonl
 - 自然语言问答：由 Claude Code Agent + Skill 调用数据工具后组织回答。
 - 招聘分析和报告生成：由 Claude Code Agent + Skill 完成。
 
-开放式问题可以使用 `query_hr_safe_sql`，但它仍然属于后端安全数据能力，不是自由直连 MySQL。SQL 必须是单条 `SELECT`，只能查询 `v_candidate_agent_safe`；高权限联系方式只能由 `HR_ADMIN` 携带访问理由查询 `v_candidate_agent_privileged`。后端会校验 SQL、字段、view、limit 和权限，并写入审计。
+开放式问题可以使用 `query_hr_safe_sql`，但它仍然属于后端安全数据能力，不是自由直连 MySQL。SQL 必须是单条 `SELECT`，只能查询 `describe_hr_safe_schema` 返回的 approved safe views：`v_candidate_agent_safe`、`v_candidate_agent_privileged`、`v_candidate_interview_safe`、`v_candidate_interview_evaluate_safe`、`v_candidate_interview_question_safe`、`v_candidate_screen_evaluate_safe`。高权限联系方式只能由 `HR_ADMIN` 携带访问理由查询 `v_candidate_agent_privileged`。后端会校验 SQL、字段、view、limit 和权限，并写入审计。
 
 ## 项目内 Skill 结构
 

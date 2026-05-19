@@ -63,6 +63,7 @@ git diff --check
 ```
 
 如果 `git status -sb` 不干净，先确认改动是否都已提交。发布脚本要求工作树干净。
+注意：`deploy/package_release.sh` 使用 `git archive HEAD` 生成 zip，未提交的文件不会进入发布包。新增 SQL view 文件、field policy 和 Skill 改动必须先 commit，再打包。
 
 生成发布包：
 
@@ -204,45 +205,61 @@ ok
 
 如果 pip 连接 `pypi.org` 超时，说明没有走公司源，重新使用上面的 `pnexus01` 命令。
 
-## 6. 数据库 view 状态
+## 6. 数据库 safe views
 
-本次安全 SQL 工具没有新增 view 字段，因此如果内网已经成功创建过：
+本版新增面试/初筛评价数据面，内网 MySQL 必须存在 6 个 safe views。不要只沿用旧版的两个候选人 view；否则 `/readyz` 会失败，Claude Code 也查不到面试评价。
 
-- `devops.v_candidate_agent_safe`
-- `devops.v_candidate_agent_privileged`
+必须存在：
 
-通常不需要重建 view。
+```text
+devops.v_candidate_agent_safe
+devops.v_candidate_agent_privileged
+devops.v_candidate_interview_safe
+devops.v_candidate_interview_evaluate_safe
+devops.v_candidate_interview_question_safe
+devops.v_candidate_screen_evaluate_safe
+```
 
-仍建议执行一次验证：
+部署本版时，先用数据库开发账号创建或替换全部 safe views：
+
+```bash
+BASE=/workspace/devops/env_prod/service/ai/hr_mcp
+DB_HOST=10.100.15.22
+DB_PORT=3306
+DB_NAME=devops
+DB_DEV_USER=<db_dev_user>
+
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_DEV_USER" -p "$DB_NAME" < "$BASE/app/sql/v_candidate_agent_safe.sql"
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_DEV_USER" -p "$DB_NAME" < "$BASE/app/sql/v_candidate_agent_privileged.sql"
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_DEV_USER" -p "$DB_NAME" < "$BASE/app/sql/v_candidate_interview_safe.sql"
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_DEV_USER" -p "$DB_NAME" < "$BASE/app/sql/v_candidate_interview_evaluate_safe.sql"
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_DEV_USER" -p "$DB_NAME" < "$BASE/app/sql/v_candidate_interview_question_safe.sql"
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_DEV_USER" -p "$DB_NAME" < "$BASE/app/sql/v_candidate_screen_evaluate_safe.sql"
+```
+
+创建后用只读服务账号验证：
 
 ```bash
 mysql -h 10.100.15.22 -P 3306 -u devops_r -p devops -e "
 SELECT candidate_id FROM devops.v_candidate_agent_safe LIMIT 1;
 SELECT candidate_id FROM devops.v_candidate_agent_privileged LIMIT 1;
+SELECT candidate_id FROM devops.v_candidate_interview_safe LIMIT 1;
+SELECT candidate_id FROM devops.v_candidate_interview_evaluate_safe LIMIT 1;
+SELECT candidate_id FROM devops.v_candidate_interview_question_safe LIMIT 1;
+SELECT candidate_id FROM devops.v_candidate_screen_evaluate_safe LIMIT 1;
 SELECT COUNT(*) AS total_rows, COUNT(DISTINCT candidate_id) AS distinct_candidates
 FROM devops.v_candidate_agent_safe;
 SELECT COUNT(*) AS total_rows, COUNT(DISTINCT candidate_id) AS distinct_candidates
 FROM devops.v_candidate_agent_privileged;
-SELECT
-  (SELECT COUNT(*) FROM devops.v_candidate_agent_safe) AS safe_count,
-  (SELECT COUNT(*) FROM devops.v_candidate_agent_privileged) AS privileged_count;
 "
 ```
 
 通过标准：
-
-- 两个 view 都能查询。
-- 每个 view 的 `total_rows = distinct_candidates`。
-- `safe_count = privileged_count`。
-- safe view 不包含 `mobile/email`。
-- privileged view 只比 safe view 多联系方式字段。
-
-如果未来 SQL view 文件发生变化，再由数据库开发账号重新执行：
-
-```bash
-mysql -h 10.100.15.22 -P 3306 -u <db_dev_user> -p devops < "$BASE/app/sql/v_candidate_agent_safe.sql"
-mysql -h 10.100.15.22 -P 3306 -u <db_dev_user> -p devops < "$BASE/app/sql/v_candidate_agent_privileged.sql"
-```
+- 6 个 view 均可查询。
+- 两个候选人 view 的 `total_rows = distinct_candidates`。
+- `v_candidate_agent_safe` 不包含 `mobile/email`。
+- 新增面试/初筛 view 不包含 `showmebug_id`、`exam_id`、`exam_name`、`candidate_link`、`interviewer_link`、`calendar_event_id`。
+- `devops_r` 至少能对 6 个 safe views 执行 `SELECT`。
 
 ## 7. 检查 `.env`
 
@@ -482,6 +499,50 @@ curl -sS "$URL/mcp" \
   -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"联系候选人安排面试","access_reason":"联系候选人安排面试","sql":"SELECT candidate_id, name, mobile FROM v_candidate_agent_privileged LIMIT 10"}}}'
 ```
 
+### 11.7 面试/初筛评价 safe SQL smoke
+
+查询某候选人的面试评价：
+
+```bash
+TOKEN=<replace-recruiter-token>
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"查询候选人面试评价","sql":"SELECT candidate_id, candidate_name, feedback, evaluation_result FROM v_candidate_interview_evaluate_safe WHERE candidate_id = 1 LIMIT 20"}}}'
+```
+
+按面试官统计平均评分：
+
+```bash
+TOKEN=<replace-recruiter-token>
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"按面试官统计平均评分","sql":"SELECT interviewer_id, AVG(score) AS avg_score, COUNT(*) AS count FROM v_candidate_interview_question_safe GROUP BY interviewer_id ORDER BY avg_score DESC LIMIT 50"}}}'
+```
+
+查询某候选人的初筛评价：
+
+```bash
+TOKEN=<replace-recruiter-token>
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"查询候选人初筛评价","sql":"SELECT candidate_id, candidate_name, feedback, screen_result FROM v_candidate_screen_evaluate_safe WHERE candidate_id = 1 LIMIT 20"}}}'
+```
+
+验证原表仍被拒绝：
+
+```bash
+TOKEN=<replace-recruiter-token>
+curl -sS "$URL/mcp" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query_hr_safe_sql","arguments":{"purpose":"验证禁止查询面试原表","sql":"SELECT id, feedback FROM hr_interview_evaluate LIMIT 10"}}}'
+```
+
+期望：前三个请求返回 `rows`；最后一个请求返回 JSON-RPC error，不能返回原表数据。
+
 ## 12. 使用 check 脚本
 
 ```bash
@@ -498,6 +559,9 @@ bash /workspace/devops/env_prod/service/ai/hr_mcp/deploy/check_hr_mcp.sh
 - `query_talent_pool_facts`
 - `describe_hr_safe_schema`
 - `query_hr_safe_sql`
+- `v_candidate_interview_evaluate_safe` 明细查询
+- `v_candidate_interview_question_safe` 评分聚合
+- `v_candidate_screen_evaluate_safe` 初筛评价查询
 
 ## 13. Claude Code CLI 接入
 
@@ -596,9 +660,13 @@ tail -200 "$BASE/logs/hr_mcp.err"
 ```text
 v_candidate_agent_safe
 v_candidate_agent_privileged
+v_candidate_interview_safe
+v_candidate_interview_evaluate_safe
+v_candidate_interview_question_safe
+v_candidate_screen_evaluate_safe
 ```
 
-其中 privileged view 只允许 `HR_ADMIN + access_reason`。
+其中 privileged view 只允许 `HR_ADMIN + access_reason`。面试/初筛原表 `hr_interview`、`hr_interview_evaluate`、`hr_screen_evaluate` 仍然禁止直接查询。
 
 ### 准备入职问题结果不符合预期
 

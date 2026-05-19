@@ -34,6 +34,63 @@ class SafeSqlPlan:
 class SafeSqlPolicy:
     SAFE_VIEW = "v_candidate_agent_safe"
     PRIVILEGED_VIEW = "v_candidate_agent_privileged"
+    INTERVIEW_VIEW = "v_candidate_interview_safe"
+    INTERVIEW_EVALUATE_VIEW = "v_candidate_interview_evaluate_safe"
+    INTERVIEW_QUESTION_VIEW = "v_candidate_interview_question_safe"
+    SCREEN_EVALUATE_VIEW = "v_candidate_screen_evaluate_safe"
+    DEFAULT_VIEW_FIELD_POLICY_KEY = {
+        SAFE_VIEW: "hr_candidate",
+        PRIVILEGED_VIEW: "hr_candidate",
+        INTERVIEW_VIEW: INTERVIEW_VIEW,
+        INTERVIEW_EVALUATE_VIEW: INTERVIEW_EVALUATE_VIEW,
+        INTERVIEW_QUESTION_VIEW: INTERVIEW_QUESTION_VIEW,
+        SCREEN_EVALUATE_VIEW: SCREEN_EVALUATE_VIEW,
+    }
+    VIEW_DESCRIPTIONS = {
+        SAFE_VIEW: "Default candidate safe profile view. It excludes contact fields.",
+        PRIVILEGED_VIEW: "Privileged candidate safe profile view for contact fields.",
+        INTERVIEW_VIEW: "Interview records with candidate and position context. It excludes operational links and platform IDs.",
+        INTERVIEW_EVALUATE_VIEW: "Interview evaluation text, result, and JSON payloads with candidate and position context.",
+        INTERVIEW_QUESTION_VIEW: "Normalized interview evaluation items expanded from evaluation JSON for score, question, answer, feedback, and dimension analysis.",
+        SCREEN_EVALUATE_VIEW: "Screening evaluation text and result with candidate and position context.",
+    }
+    VIEW_RECOMMENDED_USE = {
+        SAFE_VIEW: "Use for candidate profile lookup, candidate pool facts, status/date filtering, and open-ended candidate facts.",
+        PRIVILEGED_VIEW: "Use only when an HR_ADMIN has an access reason to retrieve candidate contact fields.",
+        INTERVIEW_VIEW: "Use for interview timelines, interview statuses, interview type counts, and candidate interview history.",
+        INTERVIEW_EVALUATE_VIEW: "Use for interview feedback, evaluation results, raw evaluation JSON, and candidate evaluation context.",
+        INTERVIEW_QUESTION_VIEW: "Use for AVG(score), score distributions, question/answer review, dimension analysis, and interviewer score comparisons.",
+        SCREEN_EVALUATE_VIEW: "Use for initial screening feedback, screening pass/reject results, and screening result aggregation.",
+    }
+    VIEW_AGGREGATABLE_FIELDS = {
+        SAFE_VIEW: {
+            "status", "position_id", "position_name", "source_id", "source_name",
+            "proposed_department_id", "hr_id", "degree", "college", "major",
+            "gender", "work_years", "proposed_join_date", "create_time", "update_time",
+        },
+        PRIVILEGED_VIEW: {
+            "status", "position_id", "position_name", "source_id", "source_name",
+            "proposed_department_id", "hr_id", "degree", "college", "major",
+            "gender", "work_years", "proposed_join_date", "create_time", "update_time",
+        },
+        INTERVIEW_VIEW: {
+            "candidate_id", "position_id", "position_name", "candidate_status",
+            "interview_type", "interview_status", "interview_time", "create_time", "update_time",
+        },
+        INTERVIEW_EVALUATE_VIEW: {
+            "candidate_id", "position_id", "position_name", "candidate_status",
+            "interviewer_id", "is_primary", "evaluation_result", "create_time", "update_time",
+        },
+        INTERVIEW_QUESTION_VIEW: {
+            "candidate_id", "position_id", "position_name", "candidate_status",
+            "interviewer_id", "is_primary", "item_source", "score", "dimension",
+            "evaluation_result", "create_time", "update_time",
+        },
+        SCREEN_EVALUATE_VIEW: {
+            "candidate_id", "position_id", "position_name", "candidate_status",
+            "screener_id", "screen_result", "create_time", "update_time",
+        },
+    }
     MAX_ROWS = 300
     DEFAULT_ROWS = 300
 
@@ -74,6 +131,7 @@ class SafeSqlPolicy:
         privileged = view_name == self.PRIVILEGED_VIEW
         allowed_fields = self._allowed_fields_for_view(view_name, identity)
         selected_fields = self._validate_identifiers(stripped_literals, view_name, table_alias, allowed_fields)
+        self._enforce_readonly_scope(stripped_literals, view_name, selected_fields, identity)
         limited_sql, limit = self._apply_limit(normalized)
         return SafeSqlPlan(
             sql=limited_sql,
@@ -142,14 +200,17 @@ class SafeSqlPolicy:
             raise SafeSqlValidationError("Safe SQL must query exactly one safe view")
         view_name = matches[0].group(1)
         alias = matches[0].group(2)
-        if view_name not in {self.SAFE_VIEW, self.PRIVILEGED_VIEW}:
-            raise SafeSqlValidationError("Safe SQL can only query candidate safe views")
+        if view_name not in self.DEFAULT_VIEW_FIELD_POLICY_KEY:
+            raise SafeSqlValidationError("Safe SQL can only query approved HR safe views")
         if alias and alias.lower() in self.SQL_KEYWORDS:
             alias = None
         return view_name, alias
 
     def _allowed_fields_for_view(self, view_name: str, identity: IdentityContext) -> Set[str]:
-        default_fields = set(self.field_policy.default_fields.get("hr_candidate", set()))
+        field_policy_key = self.DEFAULT_VIEW_FIELD_POLICY_KEY.get(view_name)
+        default_fields = set(self.field_policy.default_fields.get(field_policy_key or "", set()))
+        if view_name not in {self.SAFE_VIEW, self.PRIVILEGED_VIEW}:
+            return default_fields
         if view_name == self.SAFE_VIEW:
             return default_fields
         if identity.role not in self.field_policy.privileged_roles:
@@ -175,7 +236,7 @@ class SafeSqlPolicy:
             if prefix not in aliases and prefix != view_name:
                 raise SafeSqlValidationError("Unknown table alias in safe SQL: " + prefix)
             if field_name not in allowed_fields:
-                raise FieldAccessError("Field hr_candidate." + field_name + " is not visible to this role")
+                raise FieldAccessError("Field " + view_name + "." + field_name + " is not visible to this role")
             referenced_fields.add(field_name)
         for identifier in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", sql_without_literals):
             lowered = identifier.lower()
@@ -185,6 +246,30 @@ class SafeSqlPolicy:
                 continue
             raise SafeSqlValidationError("Unknown or unsafe identifier in SQL: " + identifier)
         return referenced_fields
+
+    def _enforce_readonly_scope(
+        self,
+        sql_without_literals: str,
+        view_name: str,
+        selected_fields: Set[str],
+        identity: IdentityContext,
+    ) -> None:
+        if identity.role != "READONLY_VIEWER":
+            return
+        lowered = sql_without_literals.lower()
+        has_aggregate = any(
+            re.search(r"\b" + re.escape(function_name) + r"\s*\(", lowered)
+            for function_name in ["count", "sum", "avg", "min", "max"]
+        )
+        if not has_aggregate:
+            raise FieldAccessError("READONLY_VIEWER can only run aggregate safe SQL")
+        aggregatable_fields = self.VIEW_AGGREGATABLE_FIELDS.get(view_name, set())
+        detail_fields = sorted(set(selected_fields) - set(aggregatable_fields))
+        if detail_fields:
+            raise FieldAccessError(
+                "READONLY_VIEWER aggregate safe SQL can only reference aggregatable fields: " +
+                ", ".join(detail_fields)
+            )
 
     def _select_aliases(self, sql_without_literals: str) -> List[str]:
         aliases = []
@@ -202,23 +287,32 @@ class SafeSqlPolicy:
         return sql, limit_value
 
     def describe_schema(self, identity: IdentityContext) -> Dict[str, Any]:
-        default_fields = sorted(self.field_policy.default_fields.get("hr_candidate", set()))
-        privileged_fields = sorted(self.field_policy.privileged_fields.get("hr_candidate", set()))
-        return {
-            "max_rows": self.MAX_ROWS,
-            "views": {
-                self.SAFE_VIEW: {
-                    "description": "Default candidate safe profile view. It excludes contact fields.",
-                    "fields": default_fields,
-                    "privileged_fields": [],
-                },
-                self.PRIVILEGED_VIEW: {
-                    "description": "Privileged candidate safe profile view for contact fields.",
-                    "fields": default_fields,
-                    "privileged_fields": privileged_fields,
+        views: Dict[str, Dict[str, Any]] = {}
+        for view_name, field_policy_key in self.DEFAULT_VIEW_FIELD_POLICY_KEY.items():
+            fields = sorted(self.field_policy.default_fields.get(field_policy_key, set()))
+            view_schema: Dict[str, Any] = {
+                "description": self.VIEW_DESCRIPTIONS[view_name],
+                "recommended_use": self.VIEW_RECOMMENDED_USE[view_name],
+                "fields": fields,
+                "privileged_fields": [],
+                "aggregatable_fields": sorted(self.VIEW_AGGREGATABLE_FIELDS.get(view_name, set())),
+            }
+            if view_name == self.PRIVILEGED_VIEW:
+                view_schema.update({
+                    "privileged_fields": sorted(self.field_policy.privileged_fields.get("hr_candidate", set())),
                     "requires_role": "HR_ADMIN",
                     "requires_access_reason": True,
                     "available_to_current_identity": bool(identity.role in self.field_policy.privileged_roles and identity.access_reason),
-                },
-            },
+                })
+            views[view_name] = view_schema
+        return {
+            "max_rows": self.MAX_ROWS,
+            "rules": [
+                "Only one SELECT statement is allowed.",
+                "Only one approved safe view may be queried.",
+                "JOIN is not allowed in Agent-authored safe SQL.",
+                "Raw HR tables and fields outside this schema are rejected.",
+                "LIMIT is required by policy and capped at 300 rows.",
+            ],
+            "views": views,
         }

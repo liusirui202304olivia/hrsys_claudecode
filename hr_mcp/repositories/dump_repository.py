@@ -67,6 +67,30 @@ ALLOWED_DISTRIBUTIONS = {
     "update_month",
 }
 
+INTERVIEW_SAFE_VIEW_COLUMNS = [
+    "interview_id", "candidate_id", "candidate_name", "position_id", "position_name",
+    "candidate_status", "interview_name", "interview_type", "interview_time",
+    "interview_status", "create_time", "update_time",
+]
+INTERVIEW_EVALUATE_SAFE_VIEW_COLUMNS = [
+    "evaluation_id", "interview_id", "candidate_id", "candidate_name", "position_id",
+    "position_name", "candidate_status", "interviewer_id", "is_primary",
+    "evaluate_data", "feedback", "evaluation_result", "question_data",
+    "create_time", "update_time",
+]
+INTERVIEW_QUESTION_SAFE_VIEW_COLUMNS = [
+    "evaluation_id", "interview_id", "candidate_id", "candidate_name", "position_id",
+    "position_name", "candidate_status", "interviewer_id", "is_primary",
+    "item_source", "question_index", "score", "question_title", "question_content",
+    "question_answer", "question_feedback", "dimension", "evaluation_result",
+    "create_time", "update_time",
+]
+SCREEN_EVALUATE_SAFE_VIEW_COLUMNS = [
+    "screen_evaluate_id", "candidate_id", "candidate_name", "position_id",
+    "position_name", "candidate_status", "screener_id", "feedback",
+    "screen_result", "create_time", "update_time",
+]
+
 
 class DumpTalentRepository:
     def __init__(self, dump_path: Union[str, Path]):
@@ -175,26 +199,61 @@ class DumpTalentRepository:
 
     def execute_safe_sql(self, sql: str) -> List[Dict[str, Any]]:
         rows = self._joined_candidates()
-        columns = sorted({key for row in rows for key in row.keys()})
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         try:
             connection.create_function("DATE_FORMAT", 2, self._sqlite_date_format)
-            column_sql = ", ".join('"%s" TEXT' % column for column in columns)
-            connection.execute('CREATE TABLE v_candidate_agent_safe (%s)' % column_sql)
-            connection.execute('CREATE TABLE v_candidate_agent_privileged (%s)' % column_sql)
-            insert_sql = (
-                'INSERT INTO v_candidate_agent_safe (%s) VALUES (%s)' %
-                (", ".join('"%s"' % column for column in columns), ", ".join(["?"] * len(columns)))
+            candidate_columns = sorted({key for row in rows for key in row.keys()})
+            self._load_sqlite_view(connection, "v_candidate_agent_safe", rows, candidate_columns)
+            self._load_sqlite_view(connection, "v_candidate_agent_privileged", rows, candidate_columns)
+            self._load_sqlite_view(
+                connection,
+                "v_candidate_interview_safe",
+                self._interview_safe_rows(),
+                INTERVIEW_SAFE_VIEW_COLUMNS,
             )
-            for row in rows:
-                values = [self._sqlite_value(row.get(column)) for column in columns]
-                connection.execute(insert_sql, values)
-                connection.execute(insert_sql.replace("v_candidate_agent_safe", "v_candidate_agent_privileged"), values)
+            self._load_sqlite_view(
+                connection,
+                "v_candidate_interview_evaluate_safe",
+                self._interview_evaluate_safe_rows(),
+                INTERVIEW_EVALUATE_SAFE_VIEW_COLUMNS,
+            )
+            self._load_sqlite_view(
+                connection,
+                "v_candidate_interview_question_safe",
+                self._interview_question_safe_rows(),
+                INTERVIEW_QUESTION_SAFE_VIEW_COLUMNS,
+            )
+            self._load_sqlite_view(
+                connection,
+                "v_candidate_screen_evaluate_safe",
+                self._screen_evaluate_safe_rows(),
+                SCREEN_EVALUATE_SAFE_VIEW_COLUMNS,
+            )
             cursor = connection.execute(sql)
             return [dict(row) for row in cursor.fetchall()]
         finally:
             connection.close()
+
+    def _load_sqlite_view(
+        self,
+        connection: sqlite3.Connection,
+        view_name: str,
+        rows: List[Dict[str, Any]],
+        columns: List[str],
+    ) -> None:
+        columns = list(columns or sorted({key for row in rows for key in row.keys()}))
+        if not columns:
+            columns = ["__empty__"]
+        column_sql = ", ".join('"%s" TEXT' % column for column in columns)
+        connection.execute('CREATE TABLE "%s" (%s)' % (view_name, column_sql))
+        insert_sql = (
+            'INSERT INTO "%s" (%s) VALUES (%s)' %
+            (view_name, ", ".join('"%s"' % column for column in columns), ", ".join(["?"] * len(columns)))
+        )
+        for row in rows:
+            values = [self._sqlite_value(row.get(column)) for column in columns]
+            connection.execute(insert_sql, values)
 
     def _validate_filters(self, filters: Dict[str, Any]) -> None:
         unknown = sorted(set(filters) - ALLOWED_CANDIDATE_FILTERS)
@@ -358,6 +417,165 @@ class DumpTalentRepository:
             row["interviewer_ids"] = interviewer_ids.get(candidate.get("id"), [])
             joined.append(row)
         return joined
+
+    def _candidate_context_by_id(self) -> Dict[Any, Dict[str, Any]]:
+        positions = {row.get("id"): row for row in self.table("hr_position")}
+        result: Dict[Any, Dict[str, Any]] = {}
+        for candidate in self.table("hr_candidate"):
+            position = positions.get(candidate.get("position_id"), {})
+            result[candidate.get("id")] = {
+                "candidate_id": candidate.get("id"),
+                "candidate_name": candidate.get("name"),
+                "position_id": candidate.get("position_id"),
+                "position_name": position.get("name"),
+                "candidate_status": candidate.get("status"),
+            }
+        return result
+
+    def _interview_safe_rows(self) -> List[Dict[str, Any]]:
+        candidate_context = self._candidate_context_by_id()
+        rows: List[Dict[str, Any]] = []
+        for interview in self.table("hr_interview"):
+            context = candidate_context.get(interview.get("candidate_id"), {})
+            row = {
+                "interview_id": interview.get("id"),
+                "candidate_id": interview.get("candidate_id"),
+                "candidate_name": context.get("candidate_name"),
+                "position_id": context.get("position_id"),
+                "position_name": context.get("position_name"),
+                "candidate_status": context.get("candidate_status"),
+                "interview_name": interview.get("name"),
+                "interview_type": interview.get("interview_type"),
+                "interview_time": interview.get("interview_time"),
+                "interview_status": interview.get("status"),
+                "create_time": interview.get("create_time"),
+                "update_time": interview.get("update_time"),
+            }
+            rows.append(row)
+        return rows
+
+    def _interview_evaluate_safe_rows(self) -> List[Dict[str, Any]]:
+        candidate_context = self._candidate_context_by_id()
+        interviews = {row.get("id"): row for row in self.table("hr_interview")}
+        rows: List[Dict[str, Any]] = []
+        for evaluation in self.table("hr_interview_evaluate"):
+            interview = interviews.get(evaluation.get("interview_id"), {})
+            context = candidate_context.get(interview.get("candidate_id"), {})
+            rows.append(self._interview_evaluate_base_row(evaluation, interview, context))
+        return rows
+
+    def _interview_question_safe_rows(self) -> List[Dict[str, Any]]:
+        candidate_context = self._candidate_context_by_id()
+        interviews = {row.get("id"): row for row in self.table("hr_interview")}
+        rows: List[Dict[str, Any]] = []
+        for evaluation in self.table("hr_interview_evaluate"):
+            interview = interviews.get(evaluation.get("interview_id"), {})
+            context = candidate_context.get(interview.get("candidate_id"), {})
+            base = self._interview_evaluate_base_row(evaluation, interview, context)
+            for item_source in ["evaluate_data", "question_data"]:
+                for index, item in enumerate(self._json_array(evaluation.get(item_source)), start=1):
+                    item_dict = item if isinstance(item, dict) else {"value": item}
+                    rows.append({
+                        "evaluation_id": base.get("evaluation_id"),
+                        "interview_id": base.get("interview_id"),
+                        "candidate_id": base.get("candidate_id"),
+                        "candidate_name": base.get("candidate_name"),
+                        "position_id": base.get("position_id"),
+                        "position_name": base.get("position_name"),
+                        "candidate_status": base.get("candidate_status"),
+                        "interviewer_id": base.get("interviewer_id"),
+                        "is_primary": base.get("is_primary"),
+                        "item_source": item_source,
+                        "question_index": index,
+                        "score": self._numeric_value(item_dict.get("score")),
+                        "question_title": item_dict.get("title") or item_dict.get("question_title") or item_dict.get("name"),
+                        "question_content": item_dict.get("content") or item_dict.get("question_content") or item_dict.get("question"),
+                        "question_answer": item_dict.get("answer") or item_dict.get("question_answer"),
+                        "question_feedback": item_dict.get("feedback") or item_dict.get("question_feedback"),
+                        "dimension": self._first_dimension(item_dict),
+                        "evaluation_result": base.get("evaluation_result"),
+                        "create_time": base.get("create_time"),
+                        "update_time": base.get("update_time"),
+                    })
+        return rows
+
+    def _screen_evaluate_safe_rows(self) -> List[Dict[str, Any]]:
+        candidate_context = self._candidate_context_by_id()
+        rows: List[Dict[str, Any]] = []
+        for evaluation in self.table("hr_screen_evaluate"):
+            context = candidate_context.get(evaluation.get("candidate_id"), {})
+            rows.append({
+                "screen_evaluate_id": evaluation.get("id"),
+                "candidate_id": evaluation.get("candidate_id"),
+                "candidate_name": context.get("candidate_name"),
+                "position_id": context.get("position_id"),
+                "position_name": context.get("position_name"),
+                "candidate_status": context.get("candidate_status"),
+                "screener_id": evaluation.get("screener_id"),
+                "feedback": evaluation.get("feedback"),
+                "screen_result": evaluation.get("result"),
+                "create_time": evaluation.get("create_time"),
+                "update_time": evaluation.get("update_time"),
+            })
+        return rows
+
+    def _interview_evaluate_base_row(
+        self,
+        evaluation: Dict[str, Any],
+        interview: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "evaluation_id": evaluation.get("id"),
+            "interview_id": evaluation.get("interview_id"),
+            "candidate_id": interview.get("candidate_id"),
+            "candidate_name": context.get("candidate_name"),
+            "position_id": context.get("position_id"),
+            "position_name": context.get("position_name"),
+            "candidate_status": context.get("candidate_status"),
+            "interviewer_id": evaluation.get("interviewer_id"),
+            "is_primary": evaluation.get("is_primary"),
+            "evaluate_data": evaluation.get("evaluate_data"),
+            "feedback": evaluation.get("feedback"),
+            "evaluation_result": evaluation.get("result"),
+            "question_data": evaluation.get("question_data"),
+            "create_time": evaluation.get("create_time"),
+            "update_time": evaluation.get("update_time"),
+        }
+
+    def _json_array(self, value: Any) -> List[Any]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                return []
+            return parsed if isinstance(parsed, list) else []
+        return []
+
+    def _numeric_value(self, value: Any) -> Optional[Union[int, float]]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return int(number) if number.is_integer() else number
+
+    def _first_dimension(self, item: Dict[str, Any]) -> Optional[str]:
+        if item.get("dimension") not in (None, ""):
+            return str(item.get("dimension"))
+        dimensions = item.get("dimensions")
+        if isinstance(dimensions, list) and dimensions:
+            return str(dimensions[0])
+        if isinstance(dimensions, str) and dimensions:
+            return dimensions
+        return None
 
     def _follower_ids_by_candidate(self) -> Dict[Any, List[Any]]:
         result: Dict[Any, Set[Any]] = {}

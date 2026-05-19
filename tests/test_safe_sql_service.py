@@ -134,6 +134,89 @@ def test_safe_sql_allows_aggregate_and_alias_over_safe_fields():
     assert repo.calls[-1].startswith("SELECT DATE_FORMAT(proposed_join_date")
 
 
+def test_safe_sql_allows_interview_evaluation_safe_view_fields():
+    service, repo = make_service()
+    identity = IdentityContext(user_id=1, role="RECRUITER")
+
+    result = service.query(
+        "SELECT candidate_id, candidate_name, feedback, evaluation_result "
+        "FROM v_candidate_interview_evaluate_safe WHERE candidate_id = 1 LIMIT 10",
+        identity,
+    )
+
+    assert result["view"] == "v_candidate_interview_evaluate_safe"
+    assert result["privileged"] is False
+    assert repo.calls[-1].startswith("SELECT candidate_id, candidate_name, feedback")
+
+
+def test_safe_sql_allows_interview_question_aggregation():
+    service, repo = make_service()
+    identity = IdentityContext(user_id=1, role="READONLY_VIEWER")
+
+    service.query(
+        "SELECT position_name, interviewer_id, AVG(score) AS avg_score, COUNT(*) AS count "
+        "FROM v_candidate_interview_question_safe "
+        "GROUP BY position_name, interviewer_id ORDER BY avg_score DESC LIMIT 20",
+        identity,
+    )
+
+    assert "AVG(score)" in repo.calls[-1]
+    assert "GROUP BY position_name, interviewer_id" in repo.calls[-1]
+
+
+def test_safe_sql_allows_screen_evaluate_safe_view_fields():
+    service, repo = make_service()
+    identity = IdentityContext(user_id=1, role="RECRUITER")
+
+    result = service.query(
+        "SELECT candidate_id, candidate_name, feedback, screen_result "
+        "FROM v_candidate_screen_evaluate_safe WHERE candidate_id = 1 LIMIT 10",
+        identity,
+    )
+
+    assert result["view"] == "v_candidate_screen_evaluate_safe"
+    assert repo.calls[-1].startswith("SELECT candidate_id, candidate_name, feedback")
+
+
+def test_safe_sql_rejects_readonly_detail_rows_from_evaluation_views():
+    service, repo = make_service()
+    identity = IdentityContext(user_id=1, role="READONLY_VIEWER")
+
+    with pytest.raises(FieldAccessError):
+        service.query(
+            "SELECT candidate_id, candidate_name, feedback "
+            "FROM v_candidate_interview_evaluate_safe LIMIT 10",
+            identity,
+        )
+
+    assert repo.calls == []
+
+
+def test_safe_sql_rejects_readonly_grouping_by_detail_fields():
+    service, repo = make_service()
+    identity = IdentityContext(user_id=1, role="READONLY_VIEWER")
+
+    with pytest.raises(FieldAccessError):
+        service.query(
+            "SELECT candidate_name, COUNT(*) AS count "
+            "FROM v_candidate_interview_evaluate_safe GROUP BY candidate_name LIMIT 20",
+            identity,
+        )
+
+    assert repo.calls == []
+
+
+@pytest.mark.parametrize("table_name", ["hr_interview", "hr_interview_evaluate", "hr_screen_evaluate"])
+def test_safe_sql_rejects_interview_raw_tables(table_name):
+    service, repo = make_service()
+    identity = IdentityContext(user_id=1, role="RECRUITER")
+
+    with pytest.raises(SafeSqlValidationError):
+        service.query("SELECT * FROM " + table_name + " LIMIT 10", identity)
+
+    assert repo.calls == []
+
+
 def test_describe_safe_schema_exposes_default_and_privileged_schema_metadata():
     service, _ = make_service()
     identity = IdentityContext(user_id=1, role="RECRUITER")
@@ -147,3 +230,13 @@ def test_describe_safe_schema_exposes_default_and_privileged_schema_metadata():
     assert "mobile" not in safe_view["fields"]
     assert "mobile" in privileged_view["privileged_fields"]
     assert privileged_view["requires_role"] == "HR_ADMIN"
+
+    interview_evaluate = schema["views"]["v_candidate_interview_evaluate_safe"]
+    interview_question = schema["views"]["v_candidate_interview_question_safe"]
+    screen_evaluate = schema["views"]["v_candidate_screen_evaluate_safe"]
+    assert "feedback" in interview_evaluate["fields"]
+    assert "question_data" in interview_evaluate["fields"]
+    assert "score" in interview_question["fields"]
+    assert "score" in interview_question["aggregatable_fields"]
+    assert "interviewer_id" in interview_question["aggregatable_fields"]
+    assert "screen_result" in screen_evaluate["aggregatable_fields"]

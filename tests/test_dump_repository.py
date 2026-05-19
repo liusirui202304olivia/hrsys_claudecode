@@ -70,23 +70,55 @@ CREATE TABLE `hr_interview` (
   `id` int NOT NULL AUTO_INCREMENT,
   `candidate_id` int NOT NULL COMMENT '候选人ID',
   `name` varchar(100) DEFAULT NULL COMMENT '面试名称',
+  `interview_type` varchar(50) DEFAULT NULL COMMENT '面试类型',
+  `interview_time` datetime DEFAULT NULL COMMENT '面试时间',
+  `showmebug_id` varchar(64) DEFAULT NULL COMMENT '平台内部ID',
+  `exam_id` varchar(64) DEFAULT NULL COMMENT '考试ID',
+  `exam_name` varchar(255) DEFAULT NULL COMMENT '考试名称',
+  `candidate_link` varchar(500) DEFAULT NULL COMMENT '候选人链接',
+  `interviewer_link` varchar(500) DEFAULT NULL COMMENT '面试官链接',
+  `calendar_event_id` varchar(128) DEFAULT NULL COMMENT '日程ID',
+  `status` varchar(50) DEFAULT NULL COMMENT '状态',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面试';
 INSERT INTO `hr_interview` VALUES
-(100,1,'技术一面'),
-(101,1,'技术二面'),
-(102,2,'HR面');
+(100,1,'技术一面','TECH','2026-05-03 10:00:00','sb-1','exam-1','内部考试','https://candidate','https://interviewer','cal-1','PASSED','2026-05-01 10:00:00','2026-05-03 12:00:00'),
+(101,1,'技术二面','TECH','2026-05-04 10:00:00','sb-2','exam-2','内部考试','https://candidate','https://interviewer','cal-2','PASSED','2026-05-02 10:00:00','2026-05-04 12:00:00'),
+(102,2,'HR面','HR','2026-05-05 10:00:00','sb-3','exam-3','内部考试','https://candidate','https://interviewer','cal-3','REJECTED','2026-05-03 10:00:00','2026-05-05 12:00:00');
 
 CREATE TABLE `hr_interview_evaluate` (
   `id` int NOT NULL AUTO_INCREMENT,
   `interview_id` int NOT NULL COMMENT '面试ID',
   `interviewer_id` int NOT NULL COMMENT '面试官ID',
+  `is_primary` tinyint(1) DEFAULT '0' COMMENT '是否主面',
+  `evaluate_data` json DEFAULT NULL COMMENT '评价 JSON',
+  `feedback` text COMMENT '评价反馈',
+  `result` varchar(50) DEFAULT NULL COMMENT '评价结果',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `question_data` json DEFAULT NULL COMMENT '问答 JSON',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面试评价';
 INSERT INTO `hr_interview_evaluate` VALUES
-(1000,100,42),
-(1001,101,43),
-(1002,102,99);
+(1000,100,42,1,'[{"score":88,"feedback":"C++基础扎实","dimensions":["基础"]}]','整体工程经验扎实','PASS','2026-05-03 11:00:00','2026-05-03 12:00:00','[{"title":"算法题","content":"解释锁竞争","answer":"从临界区和调度分析","feedback":"回答完整","dimensions":["系统"]}]'),
+(1001,101,43,0,'[{"score":92,"feedback":"建模经验匹配","dimensions":["建模"]}]','芯片建模匹配度高','PASS','2026-05-04 11:00:00','2026-05-04 12:00:00','[{"title":"建模题","content":"如何做性能瓶颈分析","answer":"使用profile和trace","feedback":"思路清楚","dimensions":["性能"]}]'),
+(1002,102,99,1,'[{"score":50,"feedback":"经验不足","dimensions":["综合"]}]','不建议推进','REJECTED','2026-05-05 11:00:00','2026-05-05 12:00:00','[{"title":"沟通题","content":"项目冲突处理","answer":"缺少细节","feedback":"需要补充","dimensions":["沟通"]}]');
+
+CREATE TABLE `hr_screen_evaluate` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `candidate_id` int NOT NULL COMMENT '候选人ID',
+  `screener_id` int NOT NULL COMMENT '初筛人ID',
+  `feedback` text COMMENT '初筛反馈',
+  `result` varchar(50) DEFAULT NULL COMMENT '初筛结果',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='初筛评价';
+INSERT INTO `hr_screen_evaluate` VALUES
+(5000,1,8,'简历与芯片建模岗位匹配','PASS','2026-05-01 09:00:00','2026-05-01 09:30:00'),
+(5001,2,8,'工作年限偏短','REJECTED','2026-04-01 09:00:00','2026-04-01 09:30:00');
 '''
 
 
@@ -158,6 +190,81 @@ def test_dump_repository_parses_schema_and_joined_rows(tmp_path: Path):
     assert candidates[0]["position_name"] == "芯片建模工程师"
     assert candidates[0]["source_name"] == "历史导入"
     assert candidates[0]["interviewer_ids"] == [42, 43]
+
+
+def test_dump_repository_executes_interview_safe_view_queries(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    rows = repo.execute_safe_sql(
+        "SELECT interview_id, candidate_id, candidate_name, interview_name, interview_status "
+        "FROM v_candidate_interview_safe WHERE candidate_id = 1 ORDER BY interview_id LIMIT 10"
+    )
+
+    assert rows == [
+        {
+            "interview_id": "100",
+            "candidate_id": "1",
+            "candidate_name": "张三",
+            "interview_name": "技术一面",
+            "interview_status": "PASSED",
+        },
+        {
+            "interview_id": "101",
+            "candidate_id": "1",
+            "candidate_name": "张三",
+            "interview_name": "技术二面",
+            "interview_status": "PASSED",
+        },
+    ]
+
+
+def test_dump_repository_executes_interview_evaluate_safe_view_queries(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    rows = repo.execute_safe_sql(
+        "SELECT candidate_id, candidate_name, feedback, evaluation_result, question_data "
+        "FROM v_candidate_interview_evaluate_safe WHERE candidate_id = 1 ORDER BY evaluation_id LIMIT 10"
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["feedback"] == "整体工程经验扎实"
+    assert rows[0]["evaluation_result"] == "PASS"
+    assert "算法题" in rows[0]["question_data"]
+
+
+def test_dump_repository_executes_interview_question_aggregation(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    rows = repo.execute_safe_sql(
+        "SELECT interviewer_id, AVG(score) AS avg_score, COUNT(*) AS count "
+        "FROM v_candidate_interview_question_safe "
+        "WHERE item_source = 'evaluate_data' GROUP BY interviewer_id ORDER BY interviewer_id LIMIT 10"
+    )
+
+    assert rows == [
+        {"interviewer_id": "42", "avg_score": 88.0, "count": 1},
+        {"interviewer_id": "43", "avg_score": 92.0, "count": 1},
+        {"interviewer_id": "99", "avg_score": 50.0, "count": 1},
+    ]
+
+
+def test_dump_repository_executes_screen_evaluate_safe_view_queries(tmp_path: Path):
+    repo = DumpTalentRepository(write_dump(tmp_path))
+
+    rows = repo.execute_safe_sql(
+        "SELECT screen_evaluate_id, candidate_id, candidate_name, feedback, screen_result "
+        "FROM v_candidate_screen_evaluate_safe WHERE candidate_id = 1 LIMIT 10"
+    )
+
+    assert rows == [
+        {
+            "screen_evaluate_id": "5000",
+            "candidate_id": "1",
+            "candidate_name": "张三",
+            "feedback": "简历与芯片建模岗位匹配",
+            "screen_result": "PASS",
+        }
+    ]
 
 
 def test_dump_repository_filters_status_keyword_and_work_years(tmp_path: Path):
@@ -583,7 +690,7 @@ def test_mysql_repository_rejects_pool_status_conflict_and_bad_dates():
         repo.search_candidates({"status_updated_before": "2026/01/01"}, page_size=10)
 
 
-def test_mysql_repository_ready_checks_both_candidate_views(monkeypatch):
+def test_mysql_repository_ready_checks_all_safe_views(monkeypatch):
     executed_sql = []
 
     class FakeCursor:
@@ -615,9 +722,13 @@ def test_mysql_repository_ready_checks_both_candidate_views(monkeypatch):
     combined_sql = "\n".join(executed_sql)
     assert "SELECT candidate_id FROM v_candidate_agent_safe LIMIT 1" in combined_sql
     assert "SELECT candidate_id FROM v_candidate_agent_privileged LIMIT 1" in combined_sql
+    assert "SELECT candidate_id FROM v_candidate_interview_safe LIMIT 1" in combined_sql
+    assert "SELECT candidate_id FROM v_candidate_interview_evaluate_safe LIMIT 1" in combined_sql
+    assert "SELECT candidate_id FROM v_candidate_interview_question_safe LIMIT 1" in combined_sql
+    assert "SELECT candidate_id FROM v_candidate_screen_evaluate_safe LIMIT 1" in combined_sql
 
 
-def test_mysql_repository_ready_fails_when_any_candidate_view_is_missing(monkeypatch):
+def test_mysql_repository_ready_fails_when_any_safe_view_is_missing(monkeypatch):
     class FakeCursor:
         def __enter__(self):
             return self
@@ -626,7 +737,7 @@ def test_mysql_repository_ready_fails_when_any_candidate_view_is_missing(monkeyp
             return False
 
         def execute(self, sql, params=None):
-            if "v_candidate_agent_privileged" in sql:
+            if "v_candidate_interview_question_safe" in sql:
                 raise RuntimeError("view does not exist")
 
     class FakeConnection:

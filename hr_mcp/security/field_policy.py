@@ -28,6 +28,29 @@ DEFAULT_VISIBLE_FIELDS: Dict[str, Set[str]] = {
     "hr_position": {"name", "category", "jd", "is_active"},
     "hr_screen_evaluate": {"id", "candidate_id", "screener_id", "feedback", "result", "create_time", "update_time"},
     "hr_interview": {"id", "candidate_id", "name", "interview_type", "interview_time", "status", "create_time", "update_time"},
+    "v_candidate_interview_safe": {
+        "interview_id", "candidate_id", "candidate_name", "position_id", "position_name",
+        "candidate_status", "interview_name", "interview_type", "interview_time",
+        "interview_status", "create_time", "update_time",
+    },
+    "v_candidate_interview_evaluate_safe": {
+        "evaluation_id", "interview_id", "candidate_id", "candidate_name", "position_id",
+        "position_name", "candidate_status", "interviewer_id", "is_primary",
+        "evaluate_data", "feedback", "evaluation_result", "question_data",
+        "create_time", "update_time",
+    },
+    "v_candidate_interview_question_safe": {
+        "evaluation_id", "interview_id", "candidate_id", "candidate_name", "position_id",
+        "position_name", "candidate_status", "interviewer_id", "is_primary",
+        "item_source", "question_index", "score", "question_title", "question_content",
+        "question_answer", "question_feedback", "dimension", "evaluation_result",
+        "create_time", "update_time",
+    },
+    "v_candidate_screen_evaluate_safe": {
+        "screen_evaluate_id", "candidate_id", "candidate_name", "position_id",
+        "position_name", "candidate_status", "screener_id", "feedback",
+        "screen_result", "create_time", "update_time",
+    },
     "hr_candidate_follower": {"id", "candidate_id", "follower_id", "is_current"},
     "sys_user": {
         "id", "name", "belong_org_id", "gender", "employee_type", "leader_id",

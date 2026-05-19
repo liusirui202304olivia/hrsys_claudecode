@@ -128,6 +128,35 @@ def test_registry_lists_six_data_tools():
     assert all("input_schema" in tool for tool in tools)
 
 
+def test_registry_tool_schemas_do_not_expose_identity_or_auth_fields():
+    forbidden_keys = {
+        "authorization",
+        "token",
+        "x-feishu-open-id",
+        "x-openclaw-account-id",
+        "x-source-runtime",
+        "source_runtime",
+        "user_id",
+        "role",
+        "department_id",
+    }
+
+    def collect_keys(value):
+        if isinstance(value, dict):
+            keys = {str(key).lower() for key in value}
+            for child in value.values():
+                keys.update(collect_keys(child))
+            return keys
+        if isinstance(value, list):
+            keys = set()
+            for child in value:
+                keys.update(collect_keys(child))
+            return keys
+        return set()
+
+    assert collect_keys(ToolRegistry().list_tools()).isdisjoint(forbidden_keys)
+
+
 def test_router_calls_registered_tools_and_records_audit():
     router, audit, _ = build_router()
     identity = IdentityContext(user_id=7, role="HR_ADMIN")

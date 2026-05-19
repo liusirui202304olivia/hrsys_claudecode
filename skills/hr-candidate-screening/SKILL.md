@@ -1,27 +1,33 @@
 ---
 name: hr-candidate-screening
 safe_sql_guidance: query_hr_safe_sql, describe_hr_safe_schema, 安全 SQL, 业务判断
-description: Use when the user asks to screen, rank, recommend, or explain candidates for the supported HR recruiting positions in this project.
+description: 当用户要求筛选、排序、推荐或解释本项目支持岗位的候选人时使用。
 ---
 
-## 安全 SQL 宽召回补充
-
-当 `search_candidate_safe_profiles` 的固定过滤不足以表达用户的筛选意图时，可以调用 `describe_hr_safe_schema` 查看安全字段，再用 `query_hr_safe_sql` 从 `v_candidate_agent_safe` 做宽召回。安全 SQL 只负责取数；业务判断、岗位标准匹配、老板偏好、推荐等级、风险点和面试验证建议仍由本 Skill 完成。
-
-使用安全 SQL 时必须遵守：
-
-- 不查原始表，不查联系方式字段。
-- 不把候选人的来源岗位当成目标岗位；目标岗位来自用户意图和 Markdown 标准。
-- 推荐输出仍必须包含 `candidate_id`、候选人姓名 `name`、目标岗位、来源岗位、是否跨岗位推荐、匹配证据、风险点和面试验证建议。
-- 对“准备入职”相关问题，默认按 `proposed_join_date`，并排除 `REJECTED`、`HIRED`。
-
-# Candidate Screening Skill 候选人筛选推荐
+# 候选人筛选推荐 Skill
 
 ## 适用场景
 
 当用户要求“筛一筛”“推荐候选人”“哪些人适合某岗位”“给推荐理由/风险点/面试验证建议”时使用本 Skill。
 
 本 Skill 负责业务判断。HR MCP/API 后端只提供安全候选人数据、事实查询和保存结果能力。
+
+## 当前可用数据能力
+
+- 候选人宽召回：优先用 `search_candidate_safe_profiles` 读取全库安全画像，按岗位标准提取 `skills_any`、`experience_keywords_any` 等宽召回条件。
+- 候选人安全详情：当安全画像证据不足时，用 `get_candidate_safe_detail_batch` 补充可见字段。
+- 灵活事实查询：当固定过滤无法表达用户意图时，先调用 `describe_hr_safe_schema`，再用 `query_hr_safe_sql` 查询安全 view；安全 SQL 只负责取数，推荐判断仍由本 Skill 完成。
+- 候选人基础安全 view：`v_candidate_agent_safe` 可用于候选人状态、岗位、来源、拟入职时间、技能和经历等开放式安全查询。
+- 面试和初筛证据：需要面试记录、面试评价、评分明细、问答明细、面试官反馈或初筛评价时，可查询 `v_candidate_interview_safe`、`v_candidate_interview_evaluate_safe`、`v_candidate_interview_question_safe`、`v_candidate_screen_evaluate_safe`。
+- 结果保存：只有用户明确要求保存筛选结果时，才调用 `save_screening_result`。
+
+使用安全 SQL 时必须遵守：
+
+- 禁止查询原表：`hr_interview`、`hr_interview_evaluate`、`hr_screen_evaluate` 以及其他未出现在 `describe_hr_safe_schema` 的表。
+- 禁止查询联系方式、面试链接、日程 ID、平台内部 ID 等未列入 schema 的字段。
+- 不把候选人的来源岗位当成目标岗位；目标岗位来自用户意图和 Markdown 标准。
+- 推荐输出仍必须包含 `candidate_id`、候选人姓名 `name`、目标岗位、来源岗位、是否跨岗位推荐、匹配证据、风险点和面试验证建议。
+- 对“准备入职”相关问题，默认按 `proposed_join_date`，并排除 `REJECTED`、`HIRED`。
 
 ## 支持岗位与标准
 
